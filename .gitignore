@@ -13,3 +13,7 @@ backend/.venv/
 node_modules/
 frontend/dist/
 backend/app/static/
+
+# local tooling artifacts
+pre-log.json
+post-log.json
