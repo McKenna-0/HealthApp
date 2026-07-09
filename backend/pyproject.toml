@@ -1,0 +1,18 @@
+[project]
+name = "backend"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "apscheduler>=3.10,<4",
+    "fastapi>=0.139.0",
+    "garminconnect>=0.3.6",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.14.2",
+    "sqlalchemy>=2",
+    "uvicorn[standard]>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
