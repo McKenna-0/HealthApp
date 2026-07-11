@@ -1,12 +1,15 @@
 # Personal Health App
 
-Self-hosted health tracker: Garmin metrics (sleep, HRV, resting HR, steps, stress, Body Battery, calories), manual weight/food/context logging, and derived energy-balance + TDEE analytics. Runs on your laptop; open it from your iPhone over the same WiFi.
+Self-hosted health tracker: Garmin metrics (sleep, HRV, resting HR, steps, stress, Body Battery, calories), workout tracking with strength sets/PRs and cardio analytics, MyFitnessPal-style food logging with barcode lookup and macro targets, bloodwork panels with reference ranges, energy-balance + TDEE analytics, and an AI analyst that writes grounded reports over your data.
+
+Runs on your laptop (same-WiFi iPhone access) or deploys to a Raspberry Pi + Tailscale for always-on access from anywhere — see [docs/deploy-pi.md](docs/deploy-pi.md).
 
 ## Stack
 
-- **Backend**: FastAPI + SQLite (Python 3.13 via `uv`), APScheduler for scheduled syncs
-- **Frontend**: React + Vite + Recharts, served by the backend as a static SPA
+- **Backend**: FastAPI + SQLite (Python 3.13 via `uv`), APScheduler for scheduled syncs + weekly AI reports
+- **Frontend**: React + Vite + Recharts PWA, served by the backend as a static SPA
 - **Data**: `python-garminconnect` (unofficial Garmin API) or a built-in mock data source
+- **AI**: any OpenAI-compatible endpoint (OpenRouter by default) — set `AI_API_KEY` in `.env`
 
 ## Quick start
 

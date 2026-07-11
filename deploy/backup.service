@@ -1,0 +1,7 @@
+[Unit]
+Description=Health app nightly SQLite backup
+
+[Service]
+Type=oneshot
+User=pi
+ExecStart=/home/pi/health-app/deploy/backup.sh
