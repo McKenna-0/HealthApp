@@ -10,7 +10,15 @@ import logging
 from datetime import date
 
 from ..config import settings
-from .base import ActivityDTO, DailyMetricsDTO, DataSource, SleepDTO, WeightDTO
+from .base import (
+    ActivityDTO,
+    DailyMetricsDTO,
+    DataSource,
+    GarminSetDTO,
+    LapDTO,
+    SleepDTO,
+    WeightDTO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +86,8 @@ def map_activity(a: dict) -> ActivityDTO | None:
         return None
     dur_s = _get(a, "duration")
     dist_m = _get(a, "distance")
+    moving_s = _get(a, "movingDuration")
+    volume = _get(a, "totalVolume")  # kg
     return ActivityDTO(
         external_id=str(a["activityId"]),
         date=date.fromisoformat(start_local[:10]),
@@ -89,7 +99,68 @@ def map_activity(a: dict) -> ActivityDTO | None:
         calories=int(a["calories"]) if _get(a, "calories") is not None else None,
         avg_hr=_get(a, "averageHR"),
         max_hr=_get(a, "maxHR"),
+        moving_duration_min=round(moving_s / 60, 1) if moving_s else None,
+        elevation_gain_m=_get(a, "elevationGain"),
+        avg_speed_mps=_get(a, "averageSpeed"),
+        max_speed_mps=_get(a, "maxSpeed"),
+        aerobic_te=_get(a, "aerobicTrainingEffect"),
+        anaerobic_te=_get(a, "anaerobicTrainingEffect"),
+        training_effect_label=_get(a, "trainingEffectLabel"),
+        training_load=_get(a, "activityTrainingLoad"),
+        vo2max=_get(a, "vO2MaxValue"),
+        avg_power=_get(a, "avgPower"),
+        norm_power=_get(a, "normPower"),
+        avg_run_cadence=_get(a, "averageRunningCadenceInStepsPerMinute"),
+        total_sets=_get(a, "totalSets"),
+        total_reps=_get(a, "totalReps"),
+        total_volume_kg=round(volume, 1) if volume is not None else None,
+        lap_count=_get(a, "lapCount"),
     )
+
+
+def map_laps(data: dict) -> list[LapDTO]:
+    """data: garmin.get_activity_splits(id)."""
+    out = []
+    for i, lap in enumerate(_get(data, "lapDTOs", default=[]) or []):
+        dist_m = _get(lap, "distance")
+        out.append(
+            LapDTO(
+                lap_index=_get(lap, "lapIndex", default=i + 1),
+                duration_s=_get(lap, "duration"),
+                distance_km=round(dist_m / 1000, 3) if dist_m else None,
+                avg_hr=_get(lap, "averageHR"),
+                avg_speed_mps=_get(lap, "averageSpeed"),
+                elevation_gain_m=_get(lap, "elevationGain"),
+            )
+        )
+    return out
+
+
+def map_exercise_sets(data: dict) -> list[GarminSetDTO]:
+    """data: garmin.get_activity_exerciseSets(id). Weight is in GRAMS."""
+    out = []
+    n = 0
+    for s in _get(data, "exerciseSets", default=[]) or []:
+        if _get(s, "setType") != "ACTIVE":
+            continue
+        reps = _get(s, "repetitionCount")
+        if not reps:
+            continue
+        n += 1
+        grams = _get(s, "weight")
+        exercises = _get(s, "exercises", default=[]) or []
+        name = None
+        if exercises:
+            name = exercises[0].get("name") or exercises[0].get("category")
+        out.append(
+            GarminSetDTO(
+                set_number=n,
+                reps=int(reps),
+                weight_kg=round(grams / 1000, 2) if grams else None,
+                exercise_name=name.replace("_", " ").title() if name else None,
+            )
+        )
+    return out
 
 
 def map_weight(entry: dict) -> WeightDTO | None:
@@ -149,6 +220,22 @@ class GarminSource(DataSource):
     def fetch_activities(self, start: date, end: date) -> list[ActivityDTO]:
         raw = self._garmin().get_activities_by_date(start.isoformat(), end.isoformat())
         return [dto for a in raw or [] if (dto := map_activity(a))]
+
+    def fetch_activity_laps(self, external_id: str) -> list[LapDTO]:
+        try:
+            data = self._garmin().get_activity_splits(external_id)
+        except Exception:
+            logger.warning("Splits fetch failed for %s", external_id, exc_info=True)
+            return []
+        return map_laps(data or {})
+
+    def fetch_exercise_sets(self, external_id: str) -> list[GarminSetDTO]:
+        try:
+            data = self._garmin().get_activity_exercise_sets(external_id)
+        except Exception:
+            logger.warning("Exercise sets fetch failed for %s", external_id, exc_info=True)
+            return []
+        return map_exercise_sets(data or {})
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
         raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())

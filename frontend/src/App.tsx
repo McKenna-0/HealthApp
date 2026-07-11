@@ -4,13 +4,18 @@ import SleepPage from './pages/SleepPage'
 import WeightEnergyPage from './pages/WeightEnergyPage'
 import LogPage from './pages/LogPage'
 import SettingsPage from './pages/SettingsPage'
+import WorkoutsPage from './pages/WorkoutsPage'
+import WorkoutDetailPage from './pages/WorkoutDetailPage'
+import BloodworkPage from './pages/BloodworkPage'
+import AIPage from './pages/AIPage'
+import MorePage from './pages/MorePage'
 
 const tabs = [
   { to: '/', icon: '📊', label: 'Today' },
-  { to: '/sleep', icon: '😴', label: 'Sleep' },
-  { to: '/weight', icon: '⚖️', label: 'Weight' },
+  { to: '/workouts', icon: '🏋️', label: 'Workouts' },
   { to: '/log', icon: '➕', label: 'Log' },
-  { to: '/settings', icon: '⚙️', label: 'Settings' },
+  { to: '/ai', icon: '🤖', label: 'AI' },
+  { to: '/more', icon: '⋯', label: 'More' },
 ]
 
 export default function App() {
@@ -18,9 +23,14 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/workouts" element={<WorkoutsPage />} />
+        <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
         <Route path="/sleep" element={<SleepPage />} />
         <Route path="/weight" element={<WeightEnergyPage />} />
         <Route path="/log" element={<LogPage />} />
+        <Route path="/bloodwork" element={<BloodworkPage />} />
+        <Route path="/ai" element={<AIPage />} />
+        <Route path="/more" element={<MorePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
       <nav className="nav">

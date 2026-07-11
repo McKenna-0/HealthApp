@@ -39,3 +39,27 @@ def init_db() -> None:
     from . import models  # noqa: F401  (register tables)
 
     Base.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """create_all only creates missing tables; additive schema changes to
+    existing tables need ALTER TABLE. Adds any mapped column that doesn't
+    exist yet (nullable / defaulted columns only, which is all we ever add)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.tables.values():
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}'
+                if col.default is not None and getattr(col.default, "arg", None) is not None:
+                    arg = col.default.arg
+                    if isinstance(arg, (int, float)):
+                        ddl += f" DEFAULT {arg}"
+                    elif isinstance(arg, str):
+                        ddl += f" DEFAULT '{arg}'"
+                conn.execute(text(ddl))

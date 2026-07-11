@@ -129,3 +129,129 @@ export interface HealthStatus {
   data_source: string
   tz: string
 }
+
+// ---- v3: workouts ----
+
+export interface Workout {
+  id: number
+  external_id: string
+  date: string
+  start_ts: string | null
+  type: string | null
+  name: string | null
+  duration_min: number | null
+  distance_km: number | null
+  calories: number | null
+  avg_hr: number | null
+  max_hr: number | null
+  moving_duration_min: number | null
+  elevation_gain_m: number | null
+  avg_speed_mps: number | null
+  max_speed_mps: number | null
+  aerobic_te: number | null
+  anaerobic_te: number | null
+  training_effect_label: string | null
+  training_load: number | null
+  vo2max: number | null
+  avg_run_cadence: number | null
+  total_sets: number | null
+  total_reps: number | null
+  total_volume_kg: number | null
+  lap_count: number | null
+}
+
+export interface Exercise {
+  id: number
+  name: string
+  category: string
+  equipment: string | null
+  is_custom: number
+}
+
+export interface WorkoutSetRow {
+  id: number
+  activity_id: number
+  exercise_id: number
+  set_number: number
+  reps: number
+  weight_kg: number | null
+  rpe: number | null
+  note: string | null
+  source: string
+  exercise_name: string
+  e1rm: number | null
+  is_pr: boolean
+}
+
+export interface WorkoutDetail {
+  activity: Workout
+  sets: WorkoutSetRow[]
+  tonnage_kg: number
+}
+
+export interface Lap {
+  lap_index: number
+  duration_s: number | null
+  distance_km: number | null
+  avg_hr: number | null
+  avg_speed_mps: number | null
+  elevation_gain_m: number | null
+}
+
+export interface WeeklyVolume {
+  week: string
+  sets: number
+  tonnage_kg: number
+  by_category: Record<string, { sets: number; tonnage_kg: number }>
+}
+
+export interface ExerciseHistoryPoint {
+  date: string
+  sets: number
+  volume_kg: number
+  best_e1rm: number | null
+  best_weight: number | null
+  top_set: string | null
+}
+
+export interface StrengthAnalytics {
+  weekly_volume: WeeklyVolume[]
+  history?: ExerciseHistoryPoint[]
+  prs?: {
+    best_e1rm: { e1rm: number; weight_kg: number; reps: number; date: string } | null
+    rep_prs: { reps: number; weight_kg: number; date: string }[]
+  }
+}
+
+export interface CardioWeekly {
+  week: string
+  count: number
+  distance_km: number
+  duration_min: number
+  load: number
+  elevation_m: number
+}
+
+export interface PacePoint {
+  date: string
+  id: number
+  name: string | null
+  distance_km: number
+  pace_min_per_km: number
+  speed_kmh: number
+  avg_hr: number | null
+}
+
+export interface LoadDay {
+  date: string
+  load: number
+  acute_7d: number
+  chronic_28d: number
+  acr: number | null
+}
+
+export interface CardioAnalytics {
+  weekly: CardioWeekly[]
+  load: { series: LoadDay[]; sufficient_history: boolean; history_days: number }
+  pace_trend?: PacePoint[]
+}

@@ -15,6 +15,11 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from .db import SessionLocal
+    from .services.strength import seed_exercises
+
+    with SessionLocal() as db:
+        seed_exercises(db)
     from .scheduler import start_scheduler, stop_scheduler
 
     start_scheduler()
@@ -38,7 +43,17 @@ def health():
     return {"status": "ok", "data_source": settings.data_source, "tz": settings.tz}
 
 
-from .routers import analytics, context, food, metrics, sync, weight  # noqa: E402
+from .routers import (  # noqa: E402
+    analytics,
+    context,
+    exercises,
+    food,
+    metrics,
+    settings as settings_router,
+    sync,
+    weight,
+    workouts,
+)
 
 app.include_router(sync.router)
 app.include_router(metrics.router)
@@ -46,6 +61,9 @@ app.include_router(weight.router)
 app.include_router(food.router)
 app.include_router(context.router)
 app.include_router(analytics.router)
+app.include_router(settings_router.router)
+app.include_router(workouts.router)
+app.include_router(exercises.router)
 
 # Serve built frontend (SPA) if present.
 if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").exists():

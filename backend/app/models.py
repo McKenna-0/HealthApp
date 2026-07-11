@@ -53,6 +53,23 @@ class Activity(Base):
     calories: Mapped[int | None] = mapped_column(Integer)
     avg_hr: Mapped[int | None] = mapped_column(Integer)
     max_hr: Mapped[int | None] = mapped_column(Integer)
+    # v3 enrichment (all nullable; populated by Garmin re-sync)
+    moving_duration_min: Mapped[float | None] = mapped_column(Float)
+    elevation_gain_m: Mapped[float | None] = mapped_column(Float)
+    avg_speed_mps: Mapped[float | None] = mapped_column(Float)
+    max_speed_mps: Mapped[float | None] = mapped_column(Float)
+    aerobic_te: Mapped[float | None] = mapped_column(Float)
+    anaerobic_te: Mapped[float | None] = mapped_column(Float)
+    training_effect_label: Mapped[str | None] = mapped_column(Text)
+    training_load: Mapped[float | None] = mapped_column(Float)
+    vo2max: Mapped[float | None] = mapped_column(Float)
+    avg_power: Mapped[float | None] = mapped_column(Float)
+    norm_power: Mapped[float | None] = mapped_column(Float)
+    avg_run_cadence: Mapped[float | None] = mapped_column(Float)
+    total_sets: Mapped[int | None] = mapped_column(Integer)
+    total_reps: Mapped[int | None] = mapped_column(Integer)
+    total_volume_kg: Mapped[float | None] = mapped_column(Float)
+    lap_count: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(Text)
     synced_at: Mapped[str] = mapped_column(Text)
 
@@ -87,6 +104,7 @@ class FoodCache(Base):
     serving_size_g: Mapped[float | None] = mapped_column(Float)
     raw_json: Mapped[str | None] = mapped_column(Text)
     cached_at: Mapped[str] = mapped_column(Text)
+    is_favorite: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class FoodLog(Base):
@@ -118,6 +136,97 @@ class ContextLog(Base):
     value: Mapped[float | None] = mapped_column(Float)
     label: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+
+
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    category: Mapped[str] = mapped_column(Text)  # push | pull | legs | core | other
+    equipment: Mapped[str | None] = mapped_column(Text)
+    is_custom: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(Text)
+
+
+class WorkoutSet(Base):
+    __tablename__ = "workout_sets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("activities.id"), index=True
+    )
+    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("exercises.id"))
+    set_number: Mapped[int] = mapped_column(Integer)
+    reps: Mapped[int] = mapped_column(Integer)
+    weight_kg: Mapped[float | None] = mapped_column(Float)
+    rpe: Mapped[float | None] = mapped_column(Float)
+    note: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, default="manual")  # manual | garmin
+
+
+class ActivityLap(Base):
+    __tablename__ = "activity_laps"
+    __table_args__ = (
+        UniqueConstraint("activity_id", "lap_index", name="uq_lap_activity_index"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("activities.id"), index=True
+    )
+    lap_index: Mapped[int] = mapped_column(Integer)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    distance_km: Mapped[float | None] = mapped_column(Float)
+    avg_hr: Mapped[int | None] = mapped_column(Integer)
+    avg_speed_mps: Mapped[float | None] = mapped_column(Float)
+    elevation_gain_m: Mapped[float | None] = mapped_column(Float)
+
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
+class BloodPanel(Base):
+    __tablename__ = "blood_panels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(Text, index=True)
+    lab_name: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text)
+
+
+class BloodResult(Base):
+    __tablename__ = "blood_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    panel_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("blood_panels.id", ondelete="CASCADE"), index=True
+    )
+    marker: Mapped[str] = mapped_column(Text)
+    value: Mapped[float] = mapped_column(Float)
+    unit: Mapped[str] = mapped_column(Text)
+    ref_low: Mapped[float | None] = mapped_column(Float)
+    ref_high: Mapped[float | None] = mapped_column(Float)
+
+
+class AIReport(Base):
+    __tablename__ = "ai_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text)  # weekly | on_demand
+    model: Mapped[str] = mapped_column(Text)
+    period_start: Mapped[str] = mapped_column(Text)
+    period_end: Mapped[str] = mapped_column(Text)
+    report_md: Mapped[str] = mapped_column(Text)
+    summary_json: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="ok")
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class SyncLog(Base):

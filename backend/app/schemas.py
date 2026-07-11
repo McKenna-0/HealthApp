@@ -48,6 +48,73 @@ class ActivityOut(ORMModel):
     calories: int | None
     avg_hr: int | None
     max_hr: int | None
+    moving_duration_min: float | None = None
+    elevation_gain_m: float | None = None
+    avg_speed_mps: float | None = None
+    max_speed_mps: float | None = None
+    aerobic_te: float | None = None
+    anaerobic_te: float | None = None
+    training_effect_label: str | None = None
+    training_load: float | None = None
+    vo2max: float | None = None
+    avg_power: float | None = None
+    norm_power: float | None = None
+    avg_run_cadence: float | None = None
+    total_sets: int | None = None
+    total_reps: int | None = None
+    total_volume_kg: float | None = None
+    lap_count: int | None = None
+
+
+class ExerciseOut(ORMModel):
+    id: int
+    name: str
+    category: str
+    equipment: str | None
+    is_custom: int
+
+
+class ExerciseIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    category: str = Field(pattern="^(push|pull|legs|core|other)$")
+    equipment: str | None = None
+
+
+class WorkoutSetOut(ORMModel):
+    id: int
+    activity_id: int
+    exercise_id: int
+    set_number: int
+    reps: int
+    weight_kg: float | None
+    rpe: float | None
+    note: str | None
+    source: str
+
+
+class WorkoutSetIn(BaseModel):
+    exercise_id: int
+    reps: int = Field(gt=0, le=200)
+    weight_kg: float | None = Field(default=None, ge=0, le=600)
+    rpe: float | None = Field(default=None, ge=1, le=10)
+    note: str | None = None
+
+
+class WorkoutSetUpdate(BaseModel):
+    exercise_id: int | None = None
+    reps: int | None = Field(default=None, gt=0, le=200)
+    weight_kg: float | None = Field(default=None, ge=0, le=600)
+    rpe: float | None = Field(default=None, ge=1, le=10)
+    note: str | None = None
+
+
+class LapOut(ORMModel):
+    lap_index: int
+    duration_s: float | None
+    distance_km: float | None
+    avg_hr: int | None
+    avg_speed_mps: float | None
+    elevation_gain_m: float | None
 
 
 class WeightOut(ORMModel):

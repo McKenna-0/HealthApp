@@ -47,6 +47,22 @@ class ActivityDTO:
     calories: int | None = None
     avg_hr: int | None = None
     max_hr: int | None = None
+    moving_duration_min: float | None = None
+    elevation_gain_m: float | None = None
+    avg_speed_mps: float | None = None
+    max_speed_mps: float | None = None
+    aerobic_te: float | None = None
+    anaerobic_te: float | None = None
+    training_effect_label: str | None = None
+    training_load: float | None = None
+    vo2max: float | None = None
+    avg_power: float | None = None
+    norm_power: float | None = None
+    avg_run_cadence: float | None = None
+    total_sets: int | None = None
+    total_reps: int | None = None
+    total_volume_kg: float | None = None
+    lap_count: int | None = None
 
 
 @dataclass
@@ -54,6 +70,26 @@ class WeightDTO:
     date: date
     ts: str
     weight_kg: float
+
+
+@dataclass
+class LapDTO:
+    lap_index: int
+    duration_s: float | None = None
+    distance_km: float | None = None
+    avg_hr: int | None = None
+    avg_speed_mps: float | None = None
+    elevation_gain_m: float | None = None
+
+
+@dataclass
+class GarminSetDTO:
+    """A strength set auto-detected by the watch (prefill for manual editing)."""
+
+    set_number: int
+    reps: int
+    weight_kg: float | None = None
+    exercise_name: str | None = None  # Garmin's category/name guess
 
 
 class DataSource(ABC):
@@ -70,3 +106,9 @@ class DataSource(ABC):
 
     @abstractmethod
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]: ...
+
+    def fetch_activity_laps(self, external_id: str) -> list[LapDTO]:
+        return []
+
+    def fetch_exercise_sets(self, external_id: str) -> list[GarminSetDTO]:
+        return []
