@@ -149,6 +149,61 @@ def search_and_cache(db: Session, query: str, source: str = "off") -> list[model
     return rows
 
 
+def _off_product_to_item(p: dict) -> dict | None:
+    n = p.get("nutriments", {})
+    kcal = n.get("energy-kcal_100g")
+    name = p.get("product_name")
+    if not name or kcal is None:
+        return None
+    brands = p.get("brands")
+    if isinstance(brands, list):
+        brands = ", ".join(brands)
+    return {
+        "api_source": "off",
+        "external_id": str(p.get("code")),
+        "name": name,
+        "brand": brands,
+        "kcal_per_100g": kcal,
+        "protein_g": n.get("proteins_100g"),
+        "carbs_g": n.get("carbohydrates_100g"),
+        "fat_g": n.get("fat_100g"),
+        "serving_size_g": _to_float(p.get("serving_quantity")),
+        "raw_json": json.dumps(p),
+    }
+
+
+def lookup_barcode(db: Session, code: str) -> models.FoodCache | None:
+    """Direct product lookup by barcode via OFF v2, upserted into food_cache."""
+    cached = db.scalar(
+        select(models.FoodCache).where(
+            models.FoodCache.api_source == "off",
+            models.FoodCache.external_id == code,
+        )
+    )
+    if cached:
+        return cached
+    try:
+        resp = httpx.get(
+            OFF_PRODUCT_URL.format(code=code),
+            params={"fields": "code,product_name,brands,nutriments,serving_quantity"},
+            headers=HEADERS,
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Barcode lookup failed for %s: %s", code, exc)
+        return None
+    item = _off_product_to_item(resp.json().get("product", {}) or {})
+    if not item:
+        return None
+    row = models.FoodCache(**item, cached_at=iso_now())
+    db.add(row)
+    db.commit()
+    return row
+
+
 def search_cache(db: Session, query: str, limit: int = 10) -> list[models.FoodCache]:
     return db.scalars(
         select(models.FoodCache)

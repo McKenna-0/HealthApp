@@ -44,7 +44,9 @@ def health():
 
 
 from .routers import (  # noqa: E402
+    ai,
     analytics,
+    bloodwork,
     context,
     exercises,
     food,
@@ -64,6 +66,8 @@ app.include_router(analytics.router)
 app.include_router(settings_router.router)
 app.include_router(workouts.router)
 app.include_router(exercises.router)
+app.include_router(bloodwork.router)
+app.include_router(ai.router)
 
 # Serve built frontend (SPA) if present.
 if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").exists():

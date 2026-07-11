@@ -54,6 +54,21 @@ def _catchup_if_stale():
         db.close()
 
 
+def _weekly_ai_report():
+    from .services import ai_client, ai_report
+
+    if not ai_client.is_configured():
+        return
+    db = SessionLocal()
+    try:
+        row = ai_report.generate_report(db, kind="weekly", days=30)
+        logger.info("Weekly AI report generated: %s", row.status)
+    except Exception:
+        logger.exception("Weekly AI report failed")
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -67,6 +82,13 @@ def start_scheduler() -> None:
             misfire_grace_time=3600,
             id=f"sync_{hour:02d}{minute:02d}",
         )
+    _scheduler.add_job(
+        _weekly_ai_report,
+        CronTrigger(day_of_week="sun", hour=18, minute=0),
+        coalesce=True,
+        misfire_grace_time=6 * 3600,
+        id="weekly_ai_report",
+    )
     # catch-up shortly after startup so app start doesn't block
     _scheduler.add_job(_catchup_if_stale, "date")
     _scheduler.start()

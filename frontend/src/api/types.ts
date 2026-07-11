@@ -87,6 +87,7 @@ export interface FoodItem {
   carbs_g: number | null
   fat_g: number | null
   serving_size_g: number | null
+  is_favorite: number
 }
 
 export interface FoodLogRow {

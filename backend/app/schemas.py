@@ -137,6 +137,26 @@ class FoodCacheOut(ORMModel):
     carbs_g: float | None
     fat_g: float | None
     serving_size_g: float | None
+    is_favorite: int = 0
+
+
+class CustomFoodIn(BaseModel):
+    """Per-100g values, OR per-serving values + serving_size_g (normalized on save)."""
+
+    name: str = Field(min_length=2, max_length=120)
+    brand: str | None = None
+    serving_size_g: float | None = Field(default=None, gt=0)
+    per_serving: bool = False  # if true, macro values are per serving
+    kcal: float = Field(ge=0)
+    protein_g: float | None = Field(default=None, ge=0)
+    carbs_g: float | None = Field(default=None, ge=0)
+    fat_g: float | None = Field(default=None, ge=0)
+
+
+class CopyDayIn(BaseModel):
+    from_date: str
+    to_date: str
+    meal: str | None = Field(default=None, pattern="^(breakfast|lunch|dinner|snack)$")
 
 
 class FoodLogOut(ORMModel):

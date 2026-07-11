@@ -1,6 +1,75 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost } from '../api/client'
+import { useEffect, useState } from 'react'
+import { apiGet, apiPost, apiPut } from '../api/client'
 import type { HealthStatus, SyncLogRow } from '../api/types'
+
+interface Targets {
+  calorie_target: number | null
+  protein_target_g: number | null
+  carbs_target_g: number | null
+  fat_target_g: number | null
+}
+
+function TargetsCard() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiGet<Targets>('/api/settings'),
+  })
+  const [form, setForm] = useState({ calorie_target: '', protein_target_g: '', carbs_target_g: '', fat_target_g: '' })
+
+  useEffect(() => {
+    if (data) {
+      setForm({
+        calorie_target: data.calorie_target?.toString() ?? '',
+        protein_target_g: data.protein_target_g?.toString() ?? '',
+        carbs_target_g: data.carbs_target_g?.toString() ?? '',
+        fat_target_g: data.fat_target_g?.toString() ?? '',
+      })
+    }
+  }, [data])
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiPut('/api/settings', {
+        calorie_target: form.calorie_target ? parseFloat(form.calorie_target) : null,
+        protein_target_g: form.protein_target_g ? parseFloat(form.protein_target_g) : null,
+        carbs_target_g: form.carbs_target_g ? parseFloat(form.carbs_target_g) : null,
+        fat_target_g: form.fat_target_g ? parseFloat(form.fat_target_g) : null,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+
+  const field = (key: keyof typeof form, label: string) => (
+    <div style={{ flex: 1 }}>
+      <div className="muted" style={{ fontSize: '0.72rem', marginBottom: 2 }}>
+        {label}
+      </div>
+      <input
+        type="number"
+        inputMode="decimal"
+        value={form[key]}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+        style={{ width: '100%' }}
+      />
+    </div>
+  )
+
+  return (
+    <div className="card">
+      <strong>Daily targets</strong>
+      <div className="row" style={{ marginTop: 8, marginBottom: 8 }}>
+        {field('calorie_target', 'Calories')}
+        {field('protein_target_g', 'Protein g')}
+        {field('carbs_target_g', 'Carbs g')}
+        {field('fat_target_g', 'Fat g')}
+      </div>
+      <button onClick={() => save.mutate()} disabled={save.isPending}>
+        {save.isPending ? 'Saving…' : 'Save targets'}
+      </button>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const qc = useQueryClient()
@@ -41,6 +110,8 @@ export default function SettingsPage() {
           </p>
         )}
       </div>
+
+      <TargetsCard />
 
       <div className="card">
         <button onClick={() => sync.mutate()} disabled={sync.isPending} style={{ width: '100%' }}>
