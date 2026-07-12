@@ -83,6 +83,13 @@ class LapDTO:
 
 
 @dataclass
+class HrZoneDTO:
+    zone_number: int
+    secs_in_zone: float | None = None
+    zone_low_boundary: int | None = None
+
+
+@dataclass
 class GarminSetDTO:
     """A strength set auto-detected by the watch (prefill for manual editing)."""
 
@@ -111,4 +118,7 @@ class DataSource(ABC):
         return []
 
     def fetch_exercise_sets(self, external_id: str) -> list[GarminSetDTO]:
+        return []
+
+    def fetch_activity_hr_zones(self, external_id: str) -> list[HrZoneDTO]:
         return []

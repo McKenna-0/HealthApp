@@ -9,6 +9,7 @@ import WorkoutDetailPage from './pages/WorkoutDetailPage'
 import BloodworkPage from './pages/BloodworkPage'
 import AIPage from './pages/AIPage'
 import MorePage from './pages/MorePage'
+import InsightsPage from './pages/InsightsPage'
 
 const tabs = [
   { to: '/', icon: '📊', label: 'Today' },
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/weight" element={<WeightEnergyPage />} />
         <Route path="/log" element={<LogPage />} />
         <Route path="/bloodwork" element={<BloodworkPage />} />
+        <Route path="/insights" element={<InsightsPage />} />
         <Route path="/ai" element={<AIPage />} />
         <Route path="/more" element={<MorePage />} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -8,6 +8,7 @@ from app.datasources.garmin_source import (
     map_activity,
     map_daily_metrics,
     map_exercise_sets,
+    map_hr_zones,
     map_laps,
     map_sleep,
     map_weight,
@@ -173,6 +174,26 @@ def test_map_laps():
     assert len(laps) == 2
     assert laps[0].distance_km == 1.0
     assert laps[1].avg_hr == 155
+
+
+def test_map_hr_zones_real_recorded_shape():
+    # Recorded from a live activity 2026-07-11: the endpoint returns a LIST
+    # (the library's dict[str, Any] type hint is wrong).
+    data = [
+        {"zoneNumber": 2, "secsInZone": 323.009, "zoneLowBoundary": 153},
+        {"zoneNumber": 1, "secsInZone": 3184.557, "zoneLowBoundary": 128},
+        {"zoneNumber": 3, "secsInZone": 0.0, "zoneLowBoundary": 179},
+    ]
+    zones = map_hr_zones(data)
+    assert [z.zone_number for z in zones] == [1, 2, 3]  # sorted
+    assert zones[0].secs_in_zone == 3184.557
+    assert zones[1].zone_low_boundary == 153
+
+
+def test_map_hr_zones_tolerates_dict_and_empty():
+    assert map_hr_zones({}) == []
+    assert map_hr_zones([]) == []
+    assert map_hr_zones({"zones": [{"zoneNumber": 1, "secsInZone": 10.0}]})[0].zone_number == 1
 
 
 def test_map_exercise_sets_grams_to_kg_and_rest_filtered():

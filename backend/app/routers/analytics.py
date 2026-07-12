@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..services import analytics
+from ..services import analytics, correlations
 from ..timeutil import today_local
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -46,6 +46,13 @@ def tdee(
     db: Session = Depends(get_db),
 ):
     return analytics.estimate_tdee(db, end or today_local().isoformat(), window)
+
+
+@router.get("/correlations")
+def correlation_insights(
+    days: int = Query(default=90, ge=30, le=365), db: Session = Depends(get_db)
+):
+    return correlations.compute_insights(db, days)
 
 
 @router.get("/dashboard")

@@ -26,6 +26,23 @@ export interface TdeeResult {
   garmin_mean_calories_out?: number | null
 }
 
+export interface ReadinessComponent {
+  key: string
+  label: string
+  value: number
+  baseline: number | null
+  points: number
+  max_points: number
+}
+
+export interface Readiness {
+  status: 'green' | 'amber' | 'red' | 'building_baseline' | 'no_data'
+  label: string
+  score_pct: number | null
+  baseline_days: number
+  components: ReadinessComponent[]
+}
+
 export interface Dashboard {
   start: string
   end: string
@@ -37,6 +54,7 @@ export interface Dashboard {
     sleep_score: number | null
   }
   tdee: TdeeResult
+  readiness: Readiness
 }
 
 export interface SleepRow {
@@ -88,6 +106,8 @@ export interface FoodItem {
   fat_g: number | null
   serving_size_g: number | null
   is_favorite: number
+  last_quantity_g?: number | null
+  last_meal?: string | null
 }
 
 export interface FoodLogRow {
@@ -199,6 +219,12 @@ export interface Lap {
   elevation_gain_m: number | null
 }
 
+export interface HrZone {
+  zone_number: number
+  secs_in_zone: number | null
+  zone_low_boundary: number | null
+}
+
 export interface WeeklyVolume {
   week: string
   sets: number
@@ -249,6 +275,29 @@ export interface LoadDay {
   acute_7d: number
   chronic_28d: number
   acr: number | null
+}
+
+export interface CorrelationInsight {
+  id: string
+  title: string
+  kind: 'binary' | 'continuous'
+  n: number
+  n_exposed: number | null
+  effect: number | null
+  effect_type: 'cohens_d' | 'pearson_r'
+  mean_diff: number | null
+  unit: string
+  direction: 'lower' | 'higher' | 'none' | null
+  strength: 'strong' | 'moderate' | 'weak' | 'tentative' | 'none' | null
+  summary_line: string | null
+  status: 'ok' | 'insufficient_data'
+  needed: number | null
+}
+
+export interface CorrelationsResponse {
+  days: number
+  note: string
+  insights: CorrelationInsight[]
 }
 
 export interface CardioAnalytics {

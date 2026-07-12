@@ -117,6 +117,12 @@ class LapOut(ORMModel):
     elevation_gain_m: float | None
 
 
+class HrZoneOut(ORMModel):
+    zone_number: int
+    secs_in_zone: float | None
+    zone_low_boundary: int | None
+
+
 class WeightOut(ORMModel):
     id: int
     date: str
@@ -138,6 +144,11 @@ class FoodCacheOut(ORMModel):
     fat_g: float | None
     serving_size_g: float | None
     is_favorite: int = 0
+
+
+class RecentFoodOut(FoodCacheOut):
+    last_quantity_g: float | None = None
+    last_meal: str | None = None
 
 
 class CustomFoodIn(BaseModel):

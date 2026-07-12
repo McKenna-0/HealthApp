@@ -11,6 +11,14 @@ function todayIso() {
 }
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'] as const
+
+function defaultMealForNow(): (typeof MEALS)[number] {
+  const h = new Date().getHours()
+  if (h < 11) return 'breakfast'
+  if (h < 15) return 'lunch'
+  if (h >= 17 && h < 21) return 'dinner'
+  return 'snack'
+}
 const CONTEXT_TYPES = ['alcohol', 'caffeine', 'mood', 'illness', 'supplement', 'note'] as const
 
 export default function LogPage() {
@@ -52,7 +60,7 @@ function FoodTab({ date }: { date: string }) {
   const [debounced, setDebounced] = useState('')
   const [selected, setSelected] = useState<FoodItem | null>(null)
   const [grams, setGrams] = useState('100')
-  const [meal, setMeal] = useState<(typeof MEALS)[number]>('snack')
+  const [meal, setMeal] = useState<(typeof MEALS)[number]>(defaultMealForNow())
   const [freeText, setFreeText] = useState('')
   const [freeKcal, setFreeKcal] = useState('')
   const [quickTab, setQuickTab] = useState<'search' | 'recent' | 'favorites' | 'mine'>('search')
@@ -116,6 +124,17 @@ function FoodTab({ date }: { date: string }) {
       const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       return apiPost('/api/food/copy-day', { from_date: from, to_date: date })
     },
+    onSuccess: () => invalidate(),
+  })
+
+  const logAgain = useMutation({
+    mutationFn: (f: FoodItem) =>
+      apiPost('/api/food/log', {
+        date,
+        meal,
+        food_cache_id: f.id,
+        quantity_g: f.last_quantity_g ?? f.serving_size_g ?? 100,
+      }),
     onSuccess: () => invalidate(),
   })
 
@@ -270,6 +289,16 @@ function FoodTab({ date }: { date: string }) {
                   {f.brand ?? ''} · {f.kcal_per_100g} kcal/100g
                 </div>
               </div>
+              {quickTab === 'recent' && (
+                <button
+                  className="del"
+                  style={{ color: '#4ade80', fontSize: '0.8rem' }}
+                  onClick={() => logAgain.mutate(f)}
+                  title={`Log ${f.last_quantity_g ?? f.serving_size_g ?? 100}g again`}
+                >
+                  ↻ {f.last_quantity_g ?? f.serving_size_g ?? 100}g
+                </button>
+              )}
               <button
                 className="del"
                 style={{ color: f.is_favorite ? '#fbbf24' : '#475569' }}

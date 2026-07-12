@@ -15,6 +15,7 @@ from .base import (
     DailyMetricsDTO,
     DataSource,
     GarminSetDTO,
+    HrZoneDTO,
     LapDTO,
     SleepDTO,
     WeightDTO,
@@ -136,6 +137,27 @@ def map_laps(data: dict) -> list[LapDTO]:
     return out
 
 
+def map_hr_zones(data) -> list[HrZoneDTO]:
+    """data: garmin.get_activity_hr_in_timezones(id). The endpoint returns a
+    JSON list of zone objects (despite the library's dict type hint); tolerate
+    a dict wrapper too."""
+    if isinstance(data, dict):
+        data = data.get("zones") or data.get("hrTimeInZones") or []
+    out = []
+    for z in data or []:
+        num = _get(z, "zoneNumber")
+        if num is None:
+            continue
+        out.append(
+            HrZoneDTO(
+                zone_number=int(num),
+                secs_in_zone=_get(z, "secsInZone"),
+                zone_low_boundary=_get(z, "zoneLowBoundary"),
+            )
+        )
+    return sorted(out, key=lambda z: z.zone_number)
+
+
 def map_exercise_sets(data: dict) -> list[GarminSetDTO]:
     """data: garmin.get_activity_exerciseSets(id). Weight is in GRAMS."""
     out = []
@@ -228,6 +250,14 @@ class GarminSource(DataSource):
             logger.warning("Splits fetch failed for %s", external_id, exc_info=True)
             return []
         return map_laps(data or {})
+
+    def fetch_activity_hr_zones(self, external_id: str) -> list[HrZoneDTO]:
+        try:
+            data = self._garmin().get_activity_hr_in_timezones(external_id)
+        except Exception:
+            logger.warning("HR zones fetch failed for %s", external_id, exc_info=True)
+            return []
+        return map_hr_zones(data)
 
     def fetch_exercise_sets(self, external_id: str) -> list[GarminSetDTO]:
         try:

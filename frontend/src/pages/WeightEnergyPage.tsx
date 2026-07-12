@@ -8,6 +8,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -30,6 +31,26 @@ function isoDaysAgo(n: number) {
   return d.toISOString().slice(0, 10)
 }
 
+function computeGoalEta(
+  trendWeight: number | null,
+  goal: number | null,
+  slopePerWeek: number | null,
+): string | null {
+  if (trendWeight == null || goal == null || slopePerWeek == null) return null
+  const remaining = goal - trendWeight
+  if (Math.abs(remaining) < 0.3) return 'You are at your goal.'
+  if (Math.abs(slopePerWeek) < 0.05) return 'Trend is flat — no ETA at current rate.'
+  if (Math.sign(remaining) !== Math.sign(slopePerWeek)) {
+    return `Trend is moving away from your ${goal} kg goal.`
+  }
+  const weeks = remaining / slopePerWeek
+  if (weeks > 104) return `More than 2 years to ${goal} kg at the current rate.`
+  const eta = new Date()
+  eta.setDate(eta.getDate() + Math.round(weeks * 7))
+  const sign = slopePerWeek > 0 ? '+' : ''
+  return `At ${sign}${slopePerWeek.toFixed(2)} kg/wk you reach ${goal} kg ~${eta.toISOString().slice(0, 10)}.`
+}
+
 export default function WeightEnergyPage() {
   const [days, setDays] = useState(90)
   const start = isoDaysAgo(days - 1)
@@ -46,12 +67,18 @@ export default function WeightEnergyPage() {
     queryKey: ['tdee'],
     queryFn: () => apiGet<TdeeResult>('/api/analytics/tdee'),
   })
+  const settings = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiGet<{ weight_goal_kg: number | null }>('/api/settings'),
+  })
 
   if (trend.isLoading || balance.isLoading) return <p className="muted">Loading…</p>
   if (trend.error || !trend.data) return <p className="error-text">Failed to load: {String(trend.error)}</p>
 
   const latest = [...trend.data].reverse().find((p) => p.trend != null)
   const t = tdee.data
+  const goal = settings.data?.weight_goal_kg ?? null
+  const goalEta = computeGoalEta(latest?.trend ?? null, goal, t?.weight_slope_kg_per_week ?? null)
 
   return (
     <>
@@ -76,6 +103,12 @@ export default function WeightEnergyPage() {
         </div>
       )}
 
+      {goalEta && (
+        <div className="card">
+          <span className="muted">🎯 {goalEta}</span>
+        </div>
+      )}
+
       <h2>History</h2>
       <RangePicker value={days} onChange={setDays} />
 
@@ -83,9 +116,24 @@ export default function WeightEnergyPage() {
         <LineChart data={trend.data}>
           <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
           <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={40} domain={['auto', 'auto']} />
+          <YAxis
+            tick={axisStyle}
+            width={40}
+            domain={[
+              (dataMin: number) => Math.floor(goal != null ? Math.min(dataMin, goal) - 1 : dataMin - 1),
+              (dataMax: number) => Math.ceil(goal != null ? Math.max(dataMax, goal) + 1 : dataMax + 1),
+            ]}
+          />
           <Tooltip {...tooltipStyle} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
+          {goal != null && (
+            <ReferenceLine
+              y={goal}
+              stroke="#fbbf24"
+              strokeDasharray="5 5"
+              label={{ value: 'goal', fontSize: 10, fill: '#fbbf24', position: 'insideTopRight' }}
+            />
+          )}
           <Line dataKey="weight" stroke="#64748b" strokeWidth={0} dot={{ r: 2 }} name="Daily" />
           <Line dataKey="trend" stroke="#4ade80" dot={false} strokeWidth={2} name="Trend (EWMA)" />
         </LineChart>

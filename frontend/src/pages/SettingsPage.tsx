@@ -8,6 +8,7 @@ interface Targets {
   protein_target_g: number | null
   carbs_target_g: number | null
   fat_target_g: number | null
+  weight_goal_kg: number | null
 }
 
 function TargetsCard() {
@@ -16,7 +17,13 @@ function TargetsCard() {
     queryKey: ['settings'],
     queryFn: () => apiGet<Targets>('/api/settings'),
   })
-  const [form, setForm] = useState({ calorie_target: '', protein_target_g: '', carbs_target_g: '', fat_target_g: '' })
+  const [form, setForm] = useState({
+    calorie_target: '',
+    protein_target_g: '',
+    carbs_target_g: '',
+    fat_target_g: '',
+    weight_goal_kg: '',
+  })
 
   useEffect(() => {
     if (data) {
@@ -25,6 +32,7 @@ function TargetsCard() {
         protein_target_g: data.protein_target_g?.toString() ?? '',
         carbs_target_g: data.carbs_target_g?.toString() ?? '',
         fat_target_g: data.fat_target_g?.toString() ?? '',
+        weight_goal_kg: data.weight_goal_kg?.toString() ?? '',
       })
     }
   }, [data])
@@ -36,6 +44,7 @@ function TargetsCard() {
         protein_target_g: form.protein_target_g ? parseFloat(form.protein_target_g) : null,
         carbs_target_g: form.carbs_target_g ? parseFloat(form.carbs_target_g) : null,
         fat_target_g: form.fat_target_g ? parseFloat(form.fat_target_g) : null,
+        weight_goal_kg: form.weight_goal_kg ? parseFloat(form.weight_goal_kg) : null,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
@@ -63,6 +72,10 @@ function TargetsCard() {
         {field('protein_target_g', 'Protein g')}
         {field('carbs_target_g', 'Carbs g')}
         {field('fat_target_g', 'Fat g')}
+      </div>
+      <div className="row" style={{ marginBottom: 8 }}>
+        {field('weight_goal_kg', 'Weight goal kg')}
+        <div style={{ flex: 3 }} />
       </div>
       <button onClick={() => save.mutate()} disabled={save.isPending}>
         {save.isPending ? 'Saving…' : 'Save targets'}

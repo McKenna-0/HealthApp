@@ -120,9 +120,10 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
     return {"deleted": log_id}
 
 
-@router.get("/recent", response_model=list[schemas.FoodCacheOut])
+@router.get("/recent", response_model=list[schemas.RecentFoodOut])
 def recent_foods(limit: int = Query(default=15, ge=1, le=50), db: Session = Depends(get_db)):
-    """Most recently logged cached foods (distinct, newest first)."""
+    """Most recently logged cached foods (distinct, newest first), with the
+    last-used quantity and meal so the UI can offer one-tap re-logging."""
     rows = db.execute(
         select(models.FoodLog.food_cache_id, func.max(models.FoodLog.ts).label("last"))
         .where(models.FoodLog.food_cache_id.isnot(None))
@@ -131,8 +132,22 @@ def recent_foods(limit: int = Query(default=15, ge=1, le=50), db: Session = Depe
         .limit(limit)
     ).all()
     ids = [r[0] for r in rows]
+    last_ts = {r[0]: r[1] for r in rows}
     items = {f.id: f for f in db.scalars(select(models.FoodCache).where(models.FoodCache.id.in_(ids)))}
-    return [items[i] for i in ids if i in items]
+    out = []
+    for i in ids:
+        if i not in items:
+            continue
+        last_log = db.scalar(
+            select(models.FoodLog)
+            .where(models.FoodLog.food_cache_id == i, models.FoodLog.ts == last_ts[i])
+            .limit(1)
+        )
+        entry = schemas.RecentFoodOut.model_validate(items[i]).model_dump()
+        entry["last_quantity_g"] = last_log.quantity_g if last_log else None
+        entry["last_meal"] = last_log.meal if last_log else None
+        out.append(entry)
+    return out
 
 
 @router.get("/favorites", response_model=list[schemas.FoodCacheOut])

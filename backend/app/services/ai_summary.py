@@ -103,6 +103,15 @@ def compose_summary(db: Session, days: int = 30) -> dict:
             }
         )
 
+    # established correlation insights (only ok-status, keeps prompt compact)
+    from .correlations import compute_insights
+
+    corr = [
+        {k: i[k] for k in ("id", "title", "n", "effect", "effect_type", "mean_diff", "unit", "strength", "summary_line")}
+        for i in compute_insights(db, days=90)["insights"]
+        if i["status"] == "ok"
+    ]
+
     # macro targets
     targets = {
         r.key: (float(r.value) if r.value else None)
@@ -125,4 +134,5 @@ def compose_summary(db: Session, days: int = 30) -> dict:
         "context_logs": context,
         "bloodwork": bloodwork,
         "macro_targets": targets,
+        "correlation_insights": corr,
     }

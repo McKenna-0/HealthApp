@@ -13,6 +13,7 @@ DEFAULTS = {
     "protein_target_g": None,
     "carbs_target_g": None,
     "fat_target_g": None,
+    "weight_goal_kg": None,
 }
 
 
@@ -21,6 +22,7 @@ class SettingsIn(BaseModel):
     protein_target_g: float | None = Field(default=None, ge=0)
     carbs_target_g: float | None = Field(default=None, ge=0)
     fat_target_g: float | None = Field(default=None, ge=0)
+    weight_goal_kg: float | None = Field(default=None, gt=20, lt=400)
 
 
 @router.get("")

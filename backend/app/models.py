@@ -183,6 +183,21 @@ class ActivityLap(Base):
     elevation_gain_m: Mapped[float | None] = mapped_column(Float)
 
 
+class ActivityHrZone(Base):
+    __tablename__ = "activity_hr_zones"
+    __table_args__ = (
+        UniqueConstraint("activity_id", "zone_number", name="uq_hrzone_activity_zone"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("activities.id"), index=True
+    )
+    zone_number: Mapped[int] = mapped_column(Integer)
+    secs_in_zone: Mapped[float | None] = mapped_column(Float)
+    zone_low_boundary: Mapped[int | None] = mapped_column(Integer)
+
+
 class UserSetting(Base):
     __tablename__ = "user_settings"
 

@@ -138,6 +138,31 @@ def workout_laps(workout_id: int, db: Session = Depends(get_db)):
     return rows
 
 
+@router.get("/{workout_id}/hr-zones", response_model=list[schemas.HrZoneOut])
+def workout_hr_zones(workout_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, workout_id)
+    cached = db.scalars(
+        select(models.ActivityHrZone)
+        .where(models.ActivityHrZone.activity_id == workout_id)
+        .order_by(models.ActivityHrZone.zone_number)
+    ).all()
+    if cached:
+        return cached
+    zones = get_data_source().fetch_activity_hr_zones(act.external_id)
+    rows = [
+        models.ActivityHrZone(
+            activity_id=workout_id,
+            zone_number=z.zone_number,
+            secs_in_zone=z.secs_in_zone,
+            zone_low_boundary=z.zone_low_boundary,
+        )
+        for z in zones
+    ]
+    db.add_all(rows)
+    db.commit()
+    return rows
+
+
 @router.post("/{workout_id}/import-sets")
 def import_sets(workout_id: int, db: Session = Depends(get_db)):
     """Prefill workout_sets from the watch's auto-detected exercise sets."""

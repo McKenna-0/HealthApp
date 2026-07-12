@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { CorrelationsResponse, Readiness } from '../api/types'
+import { InsightCard } from './InsightsPage'
 import {
   Bar,
   BarChart,
@@ -27,6 +30,79 @@ function shortDate(d: string) {
   return d.slice(5)
 }
 
+const READINESS_COLORS: Record<string, string> = {
+  green: '#4ade80',
+  amber: '#fbbf24',
+  red: '#f87171',
+  building_baseline: '#38bdf8',
+  no_data: '#64748b',
+}
+
+function ReadinessCard({ readiness }: { readiness: Readiness | undefined }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!readiness) return null
+  const color = READINESS_COLORS[readiness.status] ?? '#64748b'
+  return (
+    <div className="card" onClick={() => setExpanded((e) => !e)} style={{ cursor: 'pointer' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="row" style={{ flex: 1, gap: 10 }}>
+          <span
+            className="fixed"
+            style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }}
+          />
+          <strong>{readiness.label}</strong>
+        </div>
+        {readiness.score_pct != null && (
+          <span className="muted fixed">{readiness.score_pct}%</span>
+        )}
+      </div>
+      {expanded && readiness.components.length > 0 && (
+        <table style={{ marginTop: 8 }}>
+          <tbody>
+            {readiness.components.map((c) => (
+              <tr key={c.key}>
+                <td className="muted">{c.label}</td>
+                <td>
+                  {c.value}
+                  {c.baseline != null ? ` (base ${c.baseline})` : ''}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {'●'.repeat(c.points)}
+                  <span style={{ opacity: 0.25 }}>{'●'.repeat(c.max_points - c.points)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function InsightsTeaser() {
+  const { data } = useQuery({
+    queryKey: ['correlations'],
+    queryFn: () => apiGet<CorrelationsResponse>('/api/analytics/correlations?days=90'),
+  })
+  const established = (data?.insights ?? [])
+    .filter((i) => i.status === 'ok' && i.strength && i.strength !== 'none')
+    .slice(0, 2)
+  if (established.length === 0) return null
+  return (
+    <>
+      <h2>Insights</h2>
+      {established.map((i) => (
+        <InsightCard key={i.id} insight={i} />
+      ))}
+      <p style={{ margin: '0 4px 4px', textAlign: 'right' }}>
+        <Link to="/insights" className="muted" style={{ fontSize: '0.85rem' }}>
+          More insights ›
+        </Link>
+      </p>
+    </>
+  )
+}
+
 export default function Dashboard() {
   const [days, setDays] = useState(30)
   const { data, isLoading, error } = useQuery({
@@ -43,6 +119,7 @@ export default function Dashboard() {
   return (
     <>
       <h1>Today</h1>
+      <ReadinessCard readiness={data.readiness} />
       <div className="metric-grid">
         <MetricCard label="Steps" value={today?.steps?.toLocaleString()} sub={avg.steps ? `7d ${Math.round(avg.steps).toLocaleString()}` : undefined} />
         <MetricCard label="Resting HR" value={today?.resting_hr} sub={avg.resting_hr ? `7d ${avg.resting_hr}` : undefined} />
@@ -55,6 +132,8 @@ export default function Dashboard() {
           sub={today?.calories_out != null ? `out ${today.calories_out}` : undefined}
         />
       </div>
+
+      <InsightsTeaser />
 
       <h2>Trends</h2>
       <RangePicker value={days} onChange={setDays} />

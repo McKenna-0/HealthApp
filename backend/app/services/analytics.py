@@ -167,6 +167,99 @@ def estimate_tdee(db: Session, end: str, window: int = 28) -> dict:
     }
 
 
+# ---- readiness ---------------------------------------------------------------------
+
+MIN_BASELINE_DAYS = 7
+
+
+def readiness(db: Session, end: str) -> dict:
+    """Transparent traffic-light readiness from today's HRV/RHR vs a 28-day
+    baseline (excluding today) plus absolute sleep score and body battery."""
+    end_d = date.fromisoformat(end)
+    base_start = (end_d - timedelta(days=28)).isoformat()
+    base_end = (end_d - timedelta(days=1)).isoformat()
+
+    rows = db.scalars(
+        select(models.DailyMetrics).where(
+            models.DailyMetrics.date >= base_start, models.DailyMetrics.date <= end
+        )
+    ).all()
+    today = next((r for r in rows if r.date == end), None)
+    baseline_rows = [r for r in rows if base_start <= r.date <= base_end]
+
+    hrv_base_vals = [r.hrv_last_night_avg for r in baseline_rows if r.hrv_last_night_avg is not None]
+    rhr_base_vals = [r.resting_hr for r in baseline_rows if r.resting_hr is not None]
+    sleep_today = db.scalar(select(models.Sleep.sleep_score).where(models.Sleep.date == end))
+
+    baseline_days = max(len(hrv_base_vals), len(rhr_base_vals))
+    if len(hrv_base_vals) < MIN_BASELINE_DAYS and len(rhr_base_vals) < MIN_BASELINE_DAYS:
+        return {
+            "status": "building_baseline",
+            "label": f"Building baseline — day {baseline_days} of {MIN_BASELINE_DAYS}",
+            "score_pct": None,
+            "baseline_days": baseline_days,
+            "components": [],
+        }
+
+    components = []
+
+    def add(key: str, label: str, value, baseline, points: int | None):
+        if points is not None:
+            components.append(
+                {"key": key, "label": label, "value": value, "baseline": baseline, "points": points, "max_points": 2}
+            )
+
+    hrv_today = today.hrv_last_night_avg if today else None
+    if hrv_today is not None and len(hrv_base_vals) >= MIN_BASELINE_DAYS:
+        hrv_base = sum(hrv_base_vals) / len(hrv_base_vals)
+        ratio = hrv_today / hrv_base if hrv_base else None
+        pts = None if ratio is None else (2 if ratio >= 0.95 else 1 if ratio >= 0.85 else 0)
+        add("hrv", "HRV vs baseline", round(hrv_today, 1), round(hrv_base, 1), pts)
+
+    rhr_today = today.resting_hr if today else None
+    if rhr_today is not None and len(rhr_base_vals) >= MIN_BASELINE_DAYS:
+        rhr_base = sum(rhr_base_vals) / len(rhr_base_vals)
+        delta = rhr_today - rhr_base
+        pts = 2 if delta <= 2 else 1 if delta <= 5 else 0
+        add("rhr", "Resting HR vs baseline", rhr_today, round(rhr_base, 1), pts)
+
+    if sleep_today is not None:
+        pts = 2 if sleep_today >= 75 else 1 if sleep_today >= 60 else 0
+        add("sleep", "Sleep score", sleep_today, None, pts)
+
+    bb_today = today.body_battery_high if today else None
+    if bb_today is not None:
+        pts = 2 if bb_today >= 75 else 1 if bb_today >= 50 else 0
+        add("body_battery", "Body battery (high)", bb_today, None, pts)
+
+    if not components:
+        return {
+            "status": "no_data",
+            "label": "No data for today yet",
+            "score_pct": None,
+            "baseline_days": baseline_days,
+            "components": [],
+        }
+
+    score = sum(c["points"] for c in components)
+    possible = sum(c["max_points"] for c in components)
+    pct = round(100 * score / possible)
+    if pct >= 75:
+        status, label = "green", "Ready"
+    elif pct >= 45:
+        status, label = "amber", "Take it steady"
+    else:
+        status, label = "red", "Recover"
+
+    return {
+        "status": status,
+        "label": label,
+        "score_pct": pct,
+        "baseline_days": baseline_days,
+        "components": components,
+    }
+
+
 # ---- rolling averages / dashboard -------------------------------------------------
 
 
@@ -247,4 +340,5 @@ def dashboard(db: Session, end: str, days: int = 30) -> dict:
             "sleep_score": _avg(scores[-7:]),
         },
         "tdee": estimate_tdee(db, end),
+        "readiness": readiness(db, end),
     }

@@ -4,6 +4,7 @@ const links = [
   { to: '/sleep', icon: '😴', label: 'Sleep', desc: 'Stages, score, overnight HRV' },
   { to: '/weight', icon: '⚖️', label: 'Weight & Energy', desc: 'Trend, TDEE, energy balance' },
   { to: '/bloodwork', icon: '🩸', label: 'Bloodwork', desc: 'Lab panels & marker history' },
+  { to: '/insights', icon: '🔗', label: 'Insights', desc: 'What moves your HRV, sleep, recovery' },
   { to: '/settings', icon: '⚙️', label: 'Settings', desc: 'Targets, sync, data source' },
 ]
 

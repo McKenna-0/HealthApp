@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
-import type { Exercise, Lap, WorkoutDetail } from '../api/types'
+import type { Exercise, HrZone, Lap, WorkoutDetail } from '../api/types'
 
 function fmtDuration(min: number | null) {
   if (min == null) return '–'
@@ -101,8 +101,52 @@ export default function WorkoutDetailPage() {
         )}
       </div>
 
+      {a.avg_hr != null && <HrZonesSection workoutId={id!} />}
       {isStrength ? <SetsSection detail={data} workoutId={id!} /> : <LapsSection workoutId={id!} type={a.type} />}
     </>
+  )
+}
+
+const ZONE_COLORS = ['#64748b', '#38bdf8', '#4ade80', '#fbbf24', '#f87171']
+
+function HrZonesSection({ workoutId }: { workoutId: string }) {
+  const { data } = useQuery({
+    queryKey: ['hr-zones', workoutId],
+    queryFn: () => apiGet<HrZone[]>(`/api/workouts/${workoutId}/hr-zones`),
+  })
+  if (!data?.length) return null
+  const total = data.reduce((a, z) => a + (z.secs_in_zone ?? 0), 0)
+  if (total === 0) return null
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>Heart rate zones</h2>
+      {data.map((z) => {
+        const secs = z.secs_in_zone ?? 0
+        const pct = (secs / total) * 100
+        const m = Math.floor(secs / 60)
+        const s = Math.round(secs % 60)
+        return (
+          <div key={z.zone_number} className="row" style={{ marginBottom: 6, gap: 8 }}>
+            <span className="muted fixed" style={{ width: 24 }}>
+              Z{z.zone_number}
+            </span>
+            <div style={{ flex: 1, background: '#334155', borderRadius: 4, height: 14 }}>
+              <div
+                style={{
+                  width: `${Math.max(pct, secs > 0 ? 2 : 0)}%`,
+                  background: ZONE_COLORS[z.zone_number - 1] ?? '#64748b',
+                  height: 14,
+                  borderRadius: 4,
+                }}
+              />
+            </div>
+            <span className="muted fixed" style={{ width: 52, textAlign: 'right', fontSize: '0.75rem' }}>
+              {m}:{String(s).padStart(2, '0')}
+            </span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
