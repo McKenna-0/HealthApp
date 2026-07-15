@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
-import type { Exercise, HrZone, Lap, WorkoutDetail } from '../api/types'
+import type { Exercise, HrZone, Lap, SessionPayload, WorkoutDetail } from '../api/types'
 
 function fmtDuration(min: number | null) {
   if (min == null) return '–'
@@ -46,6 +46,7 @@ export default function WorkoutDetailPage() {
         </Link>
       </p>
       <h1>{a.name ?? a.type}</h1>
+      {isStrength && <WorkoutActions detail={data} workoutId={id!} />}
       <div className="metric-grid">
         <div className="metric-card">
           <div className="label">Duration</div>
@@ -104,6 +105,58 @@ export default function WorkoutDetailPage() {
       {a.avg_hr != null && <HrZonesSection workoutId={id!} />}
       {isStrength ? <SetsSection detail={data} workoutId={id!} /> : <LapsSection workoutId={id!} type={a.type} />}
     </>
+  )
+}
+
+function WorkoutActions({ detail, workoutId }: { detail: WorkoutDetail; workoutId: string }) {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const a = detail.activity
+
+  const repeat = useMutation({
+    mutationFn: () =>
+      apiPost<SessionPayload>('/api/workouts/sessions', { repeat_workout_id: Number(workoutId) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['active-session'] })
+      navigate('/workouts/active')
+    },
+  })
+
+  const saveRoutine = useMutation({
+    mutationFn: (name: string) => apiPost(`/api/routines/from-workout/${workoutId}`, { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['routines'] }),
+  })
+
+  return (
+    <div className="row" style={{ marginBottom: 12 }}>
+      {a.source === 'app' && a.status === 'finished' && (
+        <Link to={`/workouts/${workoutId}/summary`} style={{ display: 'flex' }}>
+          <button className="secondary" style={{ width: '100%' }}>Summary</button>
+        </Link>
+      )}
+      {detail.sets.length > 0 && (
+        <>
+          <button onClick={() => repeat.mutate()} disabled={repeat.isPending}>
+            ↻ Repeat
+          </button>
+          <button
+            className="secondary"
+            disabled={saveRoutine.isPending || saveRoutine.isSuccess}
+            onClick={() => {
+              const name = window.prompt('Routine name:', a.name ?? '')
+              if (name && name.trim().length >= 2) saveRoutine.mutate(name.trim())
+            }}
+          >
+            {saveRoutine.isSuccess ? '✓ Saved' : 'Save as routine'}
+          </button>
+        </>
+      )}
+      {(repeat.isError || saveRoutine.isError) && (
+        <p className="error-text">
+          {String(repeat.error ?? saveRoutine.error).replace(/^\d+: /, '').slice(0, 120)}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -224,11 +277,6 @@ function SetsSection({ detail, workoutId }: { detail: WorkoutDetail; workoutId: 
     },
   })
 
-  const importSets = useMutation({
-    mutationFn: () => apiPost(`/api/workouts/${workoutId}/import-sets`),
-    onSuccess: invalidate,
-  })
-
   const removeSet = useMutation({
     mutationFn: (setId: number) => apiDelete(`/api/workouts/sets/${setId}`),
     onSuccess: invalidate,
@@ -242,31 +290,20 @@ function SetsSection({ detail, workoutId }: { detail: WorkoutDetail; workoutId: 
   return (
     <>
       <div className="card">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0 }}>Sets · {detail.tonnage_kg.toFixed(0)} kg total</h2>
-          <button
-            className="secondary fixed"
-            onClick={() => importSets.mutate()}
-            disabled={importSets.isPending}
-          >
-            {importSets.isPending ? 'Importing…' : 'Import from watch'}
-          </button>
-        </div>
-        {importSets.isError && (
-          <p className="error-text">{String(importSets.error).replace(/^\d+: /, '').slice(0, 120)}</p>
-        )}
+        <h2 style={{ marginTop: 0 }}>Sets · {detail.tonnage_kg.toFixed(0)} kg total</h2>
         {detail.sets.length === 0 && <p className="muted">No sets logged yet.</p>}
         {detail.sets.map((s) => (
-          <div key={s.id} className="list-item">
+          <div key={s.id} className="list-item" style={s.is_warmup ? { opacity: 0.6 } : undefined}>
             <div className="main">
               <div className="name">
-                {s.exercise_name} {s.is_pr && <span className="badge ok">PR</span>}
+                {s.exercise_name} {s.is_warmup ? <span className="badge warm-badge">warm-up</span> : null}{' '}
+                {s.is_pr && <span className="badge pr">PR</span>}
               </div>
               <div className="detail">
                 {s.weight_kg != null ? `${s.weight_kg}kg × ` : ''}
                 {s.reps} reps
-                {s.e1rm != null ? ` · e1RM ${s.e1rm}kg` : ''}
-                {s.source === 'garmin' ? ' · watch' : ''}
+                {s.e1rm != null && !s.is_warmup ? ` · e1RM ${s.e1rm}kg` : ''}
+                {s.note ? ` · ${s.note}` : ''}
               </div>
             </div>
             <button className="del" onClick={() => removeSet.mutate(s.id)}>

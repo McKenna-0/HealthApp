@@ -14,7 +14,6 @@ from .base import (
     ActivityDTO,
     DailyMetricsDTO,
     DataSource,
-    GarminSetDTO,
     HrZoneDTO,
     LapDTO,
     SleepDTO,
@@ -158,33 +157,6 @@ def map_hr_zones(data) -> list[HrZoneDTO]:
     return sorted(out, key=lambda z: z.zone_number)
 
 
-def map_exercise_sets(data: dict) -> list[GarminSetDTO]:
-    """data: garmin.get_activity_exerciseSets(id). Weight is in GRAMS."""
-    out = []
-    n = 0
-    for s in _get(data, "exerciseSets", default=[]) or []:
-        if _get(s, "setType") != "ACTIVE":
-            continue
-        reps = _get(s, "repetitionCount")
-        if not reps:
-            continue
-        n += 1
-        grams = _get(s, "weight")
-        exercises = _get(s, "exercises", default=[]) or []
-        name = None
-        if exercises:
-            name = exercises[0].get("name") or exercises[0].get("category")
-        out.append(
-            GarminSetDTO(
-                set_number=n,
-                reps=int(reps),
-                weight_kg=round(grams / 1000, 2) if grams else None,
-                exercise_name=name.replace("_", " ").title() if name else None,
-            )
-        )
-    return out
-
-
 def map_weight(entry: dict) -> WeightDTO | None:
     grams = _get(entry, "weight")
     day_str = _get(entry, "calendarDate")
@@ -258,14 +230,6 @@ class GarminSource(DataSource):
             logger.warning("HR zones fetch failed for %s", external_id, exc_info=True)
             return []
         return map_hr_zones(data)
-
-    def fetch_exercise_sets(self, external_id: str) -> list[GarminSetDTO]:
-        try:
-            data = self._garmin().get_activity_exercise_sets(external_id)
-        except Exception:
-            logger.warning("Exercise sets fetch failed for %s", external_id, exc_info=True)
-            return []
-        return map_exercise_sets(data or {})
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
         raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())

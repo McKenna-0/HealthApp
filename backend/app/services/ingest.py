@@ -52,6 +52,10 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
             vals.update(source=source.name, synced_at=iso_now())
             _upsert(db, models.Activity, vals, ["external_id"])
 
+        from . import sessions
+
+        sessions.auto_link_new_activities(db)
+
         for w in source.fetch_weight(start, end):
             _upsert(
                 db,

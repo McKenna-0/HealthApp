@@ -72,6 +72,13 @@ class Activity(Base):
     lap_count: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(Text)
     synced_at: Mapped[str] = mapped_column(Text)
+    # in-app workout sessions (NULL for synced/watch activities)
+    status: Mapped[str | None] = mapped_column(Text)  # active | finished
+    ended_ts: Mapped[str | None] = mapped_column(Text)
+    planned_json: Mapped[str | None] = mapped_column(Text)  # [{exercise_id, target_sets}]
+    linked_activity_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("activities.id")
+    )
 
 
 class WeightLog(Base):
@@ -147,6 +154,8 @@ class Exercise(Base):
     equipment: Mapped[str | None] = mapped_column(Text)
     is_custom: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(Text)
+    primary_muscles: Mapped[str | None] = mapped_column(Text)  # JSON array
+    secondary_muscles: Mapped[str | None] = mapped_column(Text)  # JSON array
 
 
 class WorkoutSet(Base):
@@ -163,6 +172,28 @@ class WorkoutSet(Base):
     rpe: Mapped[float | None] = mapped_column(Float)
     note: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text, default="manual")  # manual | garmin
+    is_warmup: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Routine(Base):
+    __tablename__ = "routines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    created_at: Mapped[str] = mapped_column(Text)
+    last_used_at: Mapped[str | None] = mapped_column(Text)
+
+
+class RoutineExercise(Base):
+    __tablename__ = "routine_exercises"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    routine_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("routines.id", ondelete="CASCADE"), index=True
+    )
+    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("exercises.id"))
+    position: Mapped[int] = mapped_column(Integer)
+    target_sets: Mapped[int] = mapped_column(Integer, default=3)
 
 
 class ActivityLap(Base):

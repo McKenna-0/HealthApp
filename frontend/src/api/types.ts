@@ -179,6 +179,10 @@ export interface Workout {
   total_reps: number | null
   total_volume_kg: number | null
   lap_count: number | null
+  source: string | null
+  status: string | null
+  ended_ts: string | null
+  linked_activity_id: number | null
 }
 
 export interface Exercise {
@@ -187,6 +191,8 @@ export interface Exercise {
   category: string
   equipment: string | null
   is_custom: number
+  primary_muscles: string[]
+  secondary_muscles: string[]
 }
 
 export interface WorkoutSetRow {
@@ -199,6 +205,7 @@ export interface WorkoutSetRow {
   rpe: number | null
   note: string | null
   source: string
+  is_warmup: number
   exercise_name: string
   e1rm: number | null
   is_pr: boolean
@@ -208,6 +215,94 @@ export interface WorkoutDetail {
   activity: Workout
   sets: WorkoutSetRow[]
   tonnage_kg: number
+}
+
+// ---- in-app workout sessions ----
+
+export interface GhostSet {
+  set_number: number
+  weight_kg: number | null
+  reps: number
+}
+
+export interface ExerciseGhost {
+  date: string
+  sets: GhostSet[]
+  best_e1rm: number | null
+}
+
+export interface PlannedExercise {
+  exercise_id: number
+  name: string
+  target_sets: number
+}
+
+export interface SessionPayload {
+  activity: Workout
+  planned_exercises: PlannedExercise[]
+  ghosts: Record<string, ExerciseGhost>
+  sets?: WorkoutSetBase[]
+}
+
+export interface WorkoutSetBase {
+  id: number
+  activity_id: number
+  exercise_id: number
+  set_number: number
+  reps: number
+  weight_kg: number | null
+  rpe: number | null
+  note: string | null
+  source: string
+  is_warmup: number
+}
+
+export interface SetLogResult {
+  set: WorkoutSetBase
+  e1rm: number | null
+  is_pr: boolean
+  delta_weight_kg: number | null
+  delta_reps: number | null
+}
+
+export interface Routine {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  exercises: PlannedExercise[]
+}
+
+export interface WorkoutPR {
+  exercise_id: number
+  exercise_name: string
+  weight_kg: number | null
+  reps: number
+  e1rm: number | null
+}
+
+export interface WorkoutSummary {
+  workout_id: number
+  name: string | null
+  date: string
+  start_ts: string | null
+  ended_ts: string | null
+  duration_min: number | null
+  avg_hr: number | null
+  max_hr: number | null
+  calories: number | null
+  tonnage_kg: number
+  total_sets: number
+  total_reps: number
+  exercise_count: number
+  prs: WorkoutPR[]
+  muscles: Record<string, number>
+  linked_activity_id: number | null
+}
+
+export interface MuscleAnalytics {
+  days: number
+  muscles: Record<string, { sets: number; intensity: number }>
 }
 
 export interface Lap {

@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..datasources.factory import get_data_source
 from ..db import get_db
-from ..services import cardio, strength
+from ..services import cardio, muscles, sessions, strength
+from ..timeutil import today_local
 
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
 
@@ -18,14 +19,89 @@ def list_workouts(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    q = select(models.Activity)
+    # hide Garmin activities that are linked to an in-app session (their
+    # metrics show on the session) and hide in-progress sessions
+    linked_ids = select(models.Activity.linked_activity_id).where(
+        models.Activity.linked_activity_id.is_not(None)
+    )
+    q = select(models.Activity).where(
+        models.Activity.id.not_in(linked_ids),
+        (models.Activity.status.is_(None)) | (models.Activity.status != "active"),
+    )
     if start:
         q = q.where(models.Activity.date >= start)
     if end:
         q = q.where(models.Activity.date <= end)
     if type:
         q = q.where(models.Activity.type == type)
-    return db.scalars(q.order_by(models.Activity.date.desc()).limit(limit)).all()
+    return db.scalars(
+        q.order_by(models.Activity.date.desc(), models.Activity.id.desc()).limit(limit)
+    ).all()
+
+
+# ---- sessions (declared before /{workout_id} so paths don't collide) ---------
+
+
+def _session_payload(db: Session, act: models.Activity, planned: list[dict]) -> dict:
+    exercise_ids = [p["exercise_id"] for p in planned]
+    ghosts = strength.last_session_data(db, exercise_ids, before_activity_id=act.id)
+    return {
+        "activity": schemas.ActivityOut.model_validate(act).model_dump(),
+        "planned_exercises": planned,
+        "ghosts": ghosts,
+    }
+
+
+@router.post("/sessions")
+def create_session(body: schemas.SessionCreateIn, db: Session = Depends(get_db)):
+    if sessions.get_active_session(db) is not None:
+        raise HTTPException(409, "A workout is already in progress")
+    try:
+        act, planned = sessions.create_session(
+            db,
+            name=body.name,
+            routine_id=body.routine_id,
+            repeat_workout_id=body.repeat_workout_id,
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return _session_payload(db, act, planned)
+
+
+@router.get("/sessions/active")
+def active_session(db: Session = Depends(get_db)):
+    act = sessions.get_active_session(db)
+    if act is None:
+        return {"active": None}
+    planned = sessions.planned_exercises(db, act)
+    sets = db.scalars(
+        select(models.WorkoutSet)
+        .where(models.WorkoutSet.activity_id == act.id)
+        .order_by(models.WorkoutSet.id)
+    ).all()
+    payload = _session_payload(db, act, planned)
+    payload["sets"] = [
+        schemas.WorkoutSetOut.model_validate(ws).model_dump() for ws in sets
+    ]
+    return {"active": payload}
+
+
+@router.post("/sessions/{session_id}/finish")
+def finish_session(session_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, session_id)
+    if act.status != "active":
+        raise HTTPException(409, "Workout is not active")
+    sessions.finish_session(db, act)
+    return sessions.session_summary(db, act)
+
+
+@router.delete("/sessions/{session_id}")
+def discard_session(session_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, session_id)
+    if act.source != "app":
+        raise HTTPException(409, "Only in-app workouts can be discarded")
+    sessions.discard_session(db, act)
+    return {"deleted": session_id}
 
 
 # ---- analytics (declared before /{workout_id} so paths don't collide) --------
@@ -57,6 +133,20 @@ def cardio_analytics(
     if type:
         out["pace_trend"] = cardio.pace_trend(db, type, weeks)
     return out
+
+
+@router.get("/analytics/muscles")
+def muscle_analytics(
+    days: int = Query(default=7, ge=1, le=90), db: Session = Depends(get_db)
+):
+    from datetime import timedelta
+
+    end = today_local()
+    start = end - timedelta(days=days - 1)
+    return {
+        "days": days,
+        "muscles": muscles.muscle_set_counts(db, start.isoformat(), end.isoformat()),
+    }
 
 
 @router.get("/types")
@@ -100,13 +190,20 @@ def workout_detail(workout_id: int, db: Session = Depends(get_db)):
                 "e1rm": round(strength.epley_1rm(ws.weight_kg, ws.reps), 1)
                 if ws.weight_kg is not None
                 else None,
-                "is_pr": strength.is_new_pr(db, ws, act.date),
+                "is_pr": (not ws.is_warmup) and strength.is_new_pr(db, ws, act.date),
             }
         )
     return {
         "activity": schemas.ActivityOut.model_validate(act).model_dump(),
         "sets": set_rows,
-        "tonnage_kg": round(sum((s["weight_kg"] or 0) * s["reps"] for s in set_rows), 1),
+        "tonnage_kg": round(
+            sum(
+                (s["weight_kg"] or 0) * s["reps"]
+                for s in set_rows
+                if not s["is_warmup"]
+            ),
+            1,
+        ),
     }
 
 
@@ -163,64 +260,52 @@ def workout_hr_zones(workout_id: int, db: Session = Depends(get_db)):
     return rows
 
 
-@router.post("/{workout_id}/import-sets")
-def import_sets(workout_id: int, db: Session = Depends(get_db)):
-    """Prefill workout_sets from the watch's auto-detected exercise sets."""
+@router.get("/{workout_id}/summary", response_model=schemas.WorkoutSummaryOut)
+def workout_summary(workout_id: int, db: Session = Depends(get_db)):
     act = _get_activity(db, workout_id)
-    existing_garmin = db.scalar(
-        select(func.count())
-        .select_from(models.WorkoutSet)
-        .where(
-            models.WorkoutSet.activity_id == workout_id,
-            models.WorkoutSet.source == "garmin",
+    return sessions.session_summary(db, act)
+
+
+@router.post("/{workout_id}/link/{activity_id}")
+def link_workout(workout_id: int, activity_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, workout_id)
+    if act.source != "app":
+        raise HTTPException(409, "Only in-app workouts can be linked")
+    target = _get_activity(db, activity_id)
+    if target.source == "app":
+        raise HTTPException(409, "Cannot link to another in-app workout")
+    already = db.scalar(
+        select(models.Activity).where(
+            models.Activity.linked_activity_id == activity_id,
+            models.Activity.id != workout_id,
         )
     )
-    if existing_garmin:
-        raise HTTPException(409, "Garmin sets already imported for this workout")
-
-    garmin_sets = get_data_source().fetch_exercise_sets(act.external_id)
-    if not garmin_sets:
-        raise HTTPException(404, "No auto-detected sets available for this activity")
-
-    # map Garmin exercise-name guesses to catalogue entries (create custom if new)
-    by_name = {e.name.lower(): e for e in db.scalars(select(models.Exercise)).all()}
-    created = 0
-    for gs in garmin_sets:
-        name = gs.exercise_name or "Unknown Exercise"
-        ex = by_name.get(name.lower())
-        if ex is None:
-            from ..timeutil import iso_now
-
-            ex = models.Exercise(
-                name=name, category="other", is_custom=1, created_at=iso_now()
-            )
-            db.add(ex)
-            db.flush()
-            by_name[name.lower()] = ex
-        db.add(
-            models.WorkoutSet(
-                activity_id=workout_id,
-                exercise_id=ex.id,
-                set_number=gs.set_number,
-                reps=gs.reps,
-                weight_kg=gs.weight_kg,
-                source="garmin",
-            )
-        )
-        created += 1
-    db.commit()
-    return {"imported": created}
+    if already:
+        raise HTTPException(409, "Activity already linked to another workout")
+    sessions.link(db, act, target)
+    return {"linked": activity_id}
 
 
-@router.post("/{workout_id}/sets", response_model=schemas.WorkoutSetOut)
+@router.delete("/{workout_id}/link")
+def unlink_workout(workout_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, workout_id)
+    if act.linked_activity_id is None:
+        raise HTTPException(404, "Workout has no linked activity")
+    sessions.unlink(db, act)
+    return {"unlinked": workout_id}
+
+
+@router.post("/{workout_id}/sets", response_model=schemas.SetLogResult)
 def add_set(workout_id: int, body: schemas.WorkoutSetIn, db: Session = Depends(get_db)):
-    _get_activity(db, workout_id)
+    act = _get_activity(db, workout_id)
     if not db.get(models.Exercise, body.exercise_id):
         raise HTTPException(404, "Exercise not found")
+    # per-exercise ordinal so ghost matching by set index works
     next_num = (
         db.scalar(
             select(func.max(models.WorkoutSet.set_number)).where(
-                models.WorkoutSet.activity_id == workout_id
+                models.WorkoutSet.activity_id == workout_id,
+                models.WorkoutSet.exercise_id == body.exercise_id,
             )
         )
         or 0
@@ -230,7 +315,44 @@ def add_set(workout_id: int, body: schemas.WorkoutSetIn, db: Session = Depends(g
     )
     db.add(row)
     db.commit()
-    return row
+
+    e1rm = None
+    is_pr = False
+    delta_weight = None
+    delta_reps = None
+    if not row.is_warmup:
+        if row.weight_kg is not None:
+            e1rm = round(strength.epley_1rm(row.weight_kg, row.reps), 1)
+            is_pr = strength.is_new_pr(db, row, act.date)
+        # compare against the same working-set ordinal from last session
+        last = strength.last_session_data(
+            db, [body.exercise_id], before_activity_id=workout_id
+        ).get(body.exercise_id)
+        if last:
+            working_ordinal = db.scalar(
+                select(func.count())
+                .select_from(models.WorkoutSet)
+                .where(
+                    models.WorkoutSet.activity_id == workout_id,
+                    models.WorkoutSet.exercise_id == body.exercise_id,
+                    models.WorkoutSet.is_warmup == 0,
+                    models.WorkoutSet.id <= row.id,
+                )
+            )
+            prev = next(
+                (s for s in last["sets"] if s["set_number"] == working_ordinal), None
+            )
+            if prev:
+                if row.weight_kg is not None and prev["weight_kg"] is not None:
+                    delta_weight = round(row.weight_kg - prev["weight_kg"], 2)
+                delta_reps = row.reps - prev["reps"]
+    return {
+        "set": schemas.WorkoutSetOut.model_validate(row).model_dump(),
+        "e1rm": e1rm,
+        "is_pr": is_pr,
+        "delta_weight_kg": delta_weight,
+        "delta_reps": delta_reps,
+    }
 
 
 @router.put("/sets/{set_id}", response_model=schemas.WorkoutSetOut)

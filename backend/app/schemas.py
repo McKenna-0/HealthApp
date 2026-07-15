@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
+import json
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ORMModel(BaseModel):
@@ -64,6 +66,10 @@ class ActivityOut(ORMModel):
     total_reps: int | None = None
     total_volume_kg: float | None = None
     lap_count: int | None = None
+    source: str | None = None
+    status: str | None = None
+    ended_ts: str | None = None
+    linked_activity_id: int | None = None
 
 
 class ExerciseOut(ORMModel):
@@ -72,12 +78,25 @@ class ExerciseOut(ORMModel):
     category: str
     equipment: str | None
     is_custom: int
+    primary_muscles: list[str] = []
+    secondary_muscles: list[str] = []
+
+    @field_validator("primary_muscles", "secondary_muscles", mode="before")
+    @classmethod
+    def _parse_muscles(cls, v: object) -> object:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return json.loads(v) if v else []
+        return v
 
 
 class ExerciseIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     category: str = Field(pattern="^(push|pull|legs|core|other)$")
     equipment: str | None = None
+    primary_muscles: list[str] = []
+    secondary_muscles: list[str] = []
 
 
 class WorkoutSetOut(ORMModel):
@@ -90,6 +109,7 @@ class WorkoutSetOut(ORMModel):
     rpe: float | None
     note: str | None
     source: str
+    is_warmup: int = 0
 
 
 class WorkoutSetIn(BaseModel):
@@ -98,6 +118,7 @@ class WorkoutSetIn(BaseModel):
     weight_kg: float | None = Field(default=None, ge=0, le=600)
     rpe: float | None = Field(default=None, ge=1, le=10)
     note: str | None = None
+    is_warmup: int = Field(default=0, ge=0, le=1)
 
 
 class WorkoutSetUpdate(BaseModel):
@@ -106,6 +127,96 @@ class WorkoutSetUpdate(BaseModel):
     weight_kg: float | None = Field(default=None, ge=0, le=600)
     rpe: float | None = Field(default=None, ge=1, le=10)
     note: str | None = None
+    is_warmup: int | None = Field(default=None, ge=0, le=1)
+
+
+class SetLogResult(BaseModel):
+    set: WorkoutSetOut
+    e1rm: float | None = None
+    is_pr: bool = False
+    delta_weight_kg: float | None = None
+    delta_reps: int | None = None
+
+
+class SessionCreateIn(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    routine_id: int | None = None
+    repeat_workout_id: int | None = None
+
+
+class PlannedExercise(BaseModel):
+    exercise_id: int
+    name: str
+    target_sets: int = 3
+
+
+class GhostSet(BaseModel):
+    set_number: int
+    weight_kg: float | None
+    reps: int
+
+
+class ExerciseGhost(BaseModel):
+    date: str
+    sets: list[GhostSet]
+    best_e1rm: float | None = None
+
+
+class SessionOut(BaseModel):
+    activity: ActivityOut
+    planned_exercises: list[PlannedExercise] = []
+    ghosts: dict[int, ExerciseGhost] = {}
+
+
+class RoutineExerciseIn(BaseModel):
+    exercise_id: int
+    target_sets: int = Field(default=3, gt=0, le=20)
+
+
+class RoutineIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    exercises: list[RoutineExerciseIn] = []
+
+
+class RoutineExerciseOut(BaseModel):
+    exercise_id: int
+    name: str
+    target_sets: int
+
+
+class RoutineOut(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    last_used_at: str | None
+    exercises: list[RoutineExerciseOut] = []
+
+
+class WorkoutPR(BaseModel):
+    exercise_id: int
+    exercise_name: str
+    weight_kg: float | None
+    reps: int
+    e1rm: float | None
+
+
+class WorkoutSummaryOut(BaseModel):
+    workout_id: int
+    name: str | None
+    date: str
+    start_ts: str | None
+    ended_ts: str | None
+    duration_min: float | None
+    avg_hr: int | None
+    max_hr: int | None
+    calories: int | None
+    tonnage_kg: float
+    total_sets: int
+    total_reps: int
+    exercise_count: int
+    prs: list[WorkoutPR] = []
+    muscles: dict[str, float] = {}
+    linked_activity_id: int | None = None
 
 
 class LapOut(ORMModel):

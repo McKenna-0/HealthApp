@@ -7,7 +7,6 @@ from datetime import date
 from app.datasources.garmin_source import (
     map_activity,
     map_daily_metrics,
-    map_exercise_sets,
     map_hr_zones,
     map_laps,
     map_sleep,
@@ -194,22 +193,3 @@ def test_map_hr_zones_tolerates_dict_and_empty():
     assert map_hr_zones({}) == []
     assert map_hr_zones([]) == []
     assert map_hr_zones({"zones": [{"zoneNumber": 1, "secsInZone": 10.0}]})[0].zone_number == 1
-
-
-def test_map_exercise_sets_grams_to_kg_and_rest_filtered():
-    data = {
-        "exerciseSets": [
-            {"setType": "ACTIVE", "repetitionCount": 8,
-             "weight": 80000.0, "exercises": [{"category": "BENCH_PRESS", "name": None}]},
-            {"setType": "REST", "repetitionCount": None, "weight": None, "exercises": []},
-            {"setType": "ACTIVE", "repetitionCount": 10,
-             "weight": None, "exercises": [{"category": "PUSH_UP", "name": "PUSH_UP"}]},
-        ]
-    }
-    sets = map_exercise_sets(data)
-    assert len(sets) == 2  # REST filtered
-    assert sets[0].weight_kg == 80.0  # grams -> kg
-    assert sets[0].exercise_name == "Bench Press"
-    assert sets[0].set_number == 1
-    assert sets[1].set_number == 2
-    assert sets[1].weight_kg is None

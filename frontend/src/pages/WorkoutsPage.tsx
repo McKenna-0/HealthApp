@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Bar,
   BarChart,
@@ -11,14 +11,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiGet } from '../api/client'
+import { apiGet, apiPost } from '../api/client'
 import type {
   CardioAnalytics,
   Exercise,
+  MuscleAnalytics,
+  SessionPayload,
   StrengthAnalytics,
   Workout,
 } from '../api/types'
 import ChartCard from '../components/ChartCard'
+import MuscleBodyMap from '../components/MuscleBodyMap'
 
 const axisStyle = { fontSize: 10, fill: '#94a3b8' }
 const tooltipStyle = {
@@ -46,6 +49,7 @@ export default function WorkoutsPage() {
   return (
     <>
       <h1>Workouts</h1>
+      <ActiveBanner />
       <div className="tabs">
         {(['history', 'strength', 'cardio'] as const).map((t) => (
           <button key={t} className={`chip ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
@@ -60,33 +64,87 @@ export default function WorkoutsPage() {
   )
 }
 
+function ActiveBanner() {
+  const { data } = useQuery({
+    queryKey: ['active-session'],
+    queryFn: () => apiGet<{ active: SessionPayload | null }>('/api/workouts/sessions/active'),
+  })
+  if (!data?.active) return null
+  const a = data.active.activity
+  return (
+    <Link to="/workouts/active" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="card active-banner">
+        <span className="pulse-dot" />
+        <div className="main">
+          <strong>{a.name}</strong>
+          <div className="muted" style={{ fontSize: '0.78rem' }}>
+            Workout in progress — tap to resume
+          </div>
+        </div>
+        <span className="muted">›</span>
+      </div>
+    </Link>
+  )
+}
+
+function StartRow() {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const start = useMutation({
+    mutationFn: () => apiPost<SessionPayload>('/api/workouts/sessions', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['active-session'] })
+      navigate('/workouts/active')
+    },
+  })
+  return (
+    <div className="row" style={{ marginBottom: 12 }}>
+      <button onClick={() => start.mutate()} disabled={start.isPending}>
+        ▶ Start workout
+      </button>
+      <Link to="/workouts/routines" style={{ display: 'flex' }}>
+        <button className="secondary" style={{ width: '100%' }}>Routines</button>
+      </Link>
+    </div>
+  )
+}
+
 function HistoryTab() {
   const { data, isLoading } = useQuery({
     queryKey: ['workouts'],
     queryFn: () => apiGet<Workout[]>('/api/workouts?limit=60'),
   })
   if (isLoading) return <p className="muted">Loading…</p>
-  if (!data?.length) return <p className="muted">No workouts synced yet.</p>
   return (
-    <div className="card">
-      {data.map((w) => (
-        <Link key={w.id} to={`/workouts/${w.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="list-item">
-            <span style={{ fontSize: '1.3rem' }}>{TYPE_ICONS[w.type ?? ''] ?? '💪'}</span>
-            <div className="main">
-              <div className="name">{w.name ?? w.type}</div>
-              <div className="detail">
-                {w.date} · {fmtDuration(w.duration_min)}
-                {w.distance_km ? ` · ${w.distance_km.toFixed(1)} km` : ''}
-                {w.total_sets ? ` · ${w.total_sets} sets` : ''}
-                {w.avg_hr ? ` · ${w.avg_hr} bpm` : ''}
+    <>
+      <StartRow />
+      {!data?.length ? (
+        <p className="muted">No workouts yet. Start one above or sync your watch.</p>
+      ) : (
+        <div className="card">
+          {data.map((w) => (
+            <Link key={w.id} to={`/workouts/${w.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="list-item">
+                <span style={{ fontSize: '1.3rem' }}>{TYPE_ICONS[w.type ?? ''] ?? '💪'}</span>
+                <div className="main">
+                  <div className="name">
+                    {w.name ?? w.type}
+                    {w.source === 'app' && <span className="badge app-badge">logged</span>}
+                  </div>
+                  <div className="detail">
+                    {w.date} · {fmtDuration(w.duration_min)}
+                    {w.distance_km ? ` · ${w.distance_km.toFixed(1)} km` : ''}
+                    {w.total_sets ? ` · ${w.total_sets} sets` : ''}
+                    {w.avg_hr ? ` · ${w.avg_hr} bpm` : ''}
+                  </div>
+                </div>
+                <span className="muted">›</span>
               </div>
-            </div>
-            <span className="muted">›</span>
-          </div>
-        </Link>
-      ))}
-    </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -104,8 +162,24 @@ function StrengthTab() {
       ),
   })
 
+  const muscleData = useQuery({
+    queryKey: ['muscle-analytics'],
+    queryFn: () => apiGet<MuscleAnalytics>('/api/workouts/analytics/muscles?days=7'),
+  })
+  const intensities = Object.fromEntries(
+    Object.entries(muscleData.data?.muscles ?? {}).map(([k, v]) => [k, v.intensity]),
+  )
+
   return (
     <>
+      <div className="card" style={{ padding: '14px 8px 4px' }}>
+        <h2 style={{ margin: '0 8px 4px' }}>Muscles worked — last 7 days</h2>
+        <MuscleBodyMap intensities={intensities} height={230} />
+        {Object.keys(intensities).length === 0 && (
+          <p className="muted" style={{ textAlign: 'center' }}>No sets logged this week yet.</p>
+        )}
+      </div>
+
       <ChartCard title="Weekly tonnage (kg)">
         <BarChart data={data?.weekly_volume ?? []}>
           <CartesianGrid stroke="#334155" strokeDasharray="3 3" />

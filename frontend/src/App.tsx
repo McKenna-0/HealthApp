@@ -6,6 +6,9 @@ import LogPage from './pages/LogPage'
 import SettingsPage from './pages/SettingsPage'
 import WorkoutsPage from './pages/WorkoutsPage'
 import WorkoutDetailPage from './pages/WorkoutDetailPage'
+import ActiveWorkoutPage from './pages/ActiveWorkoutPage'
+import WorkoutSummaryPage from './pages/WorkoutSummaryPage'
+import RoutinesPage from './pages/RoutinesPage'
 import BloodworkPage from './pages/BloodworkPage'
 import AIPage from './pages/AIPage'
 import MorePage from './pages/MorePage'
@@ -25,6 +28,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/workouts" element={<WorkoutsPage />} />
+        <Route path="/workouts/active" element={<ActiveWorkoutPage />} />
+        <Route path="/workouts/routines" element={<RoutinesPage />} />
+        <Route path="/workouts/:id/summary" element={<WorkoutSummaryPage />} />
         <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
         <Route path="/sleep" element={<SleepPage />} />
         <Route path="/weight" element={<WeightEnergyPage />} />

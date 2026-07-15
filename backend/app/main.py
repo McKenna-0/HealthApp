@@ -16,10 +16,12 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 async def lifespan(app: FastAPI):
     init_db()
     from .db import SessionLocal
+    from .services.muscles import backfill_exercise_muscles
     from .services.strength import seed_exercises
 
     with SessionLocal() as db:
         seed_exercises(db)
+        backfill_exercise_muscles(db)
     from .scheduler import start_scheduler, stop_scheduler
 
     start_scheduler()
@@ -51,6 +53,7 @@ from .routers import (  # noqa: E402
     exercises,
     food,
     metrics,
+    routines,
     settings as settings_router,
     sync,
     weight,
@@ -66,6 +69,7 @@ app.include_router(analytics.router)
 app.include_router(settings_router.router)
 app.include_router(workouts.router)
 app.include_router(exercises.router)
+app.include_router(routines.router)
 app.include_router(bloodwork.router)
 app.include_router(ai.router)
 

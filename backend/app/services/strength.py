@@ -83,15 +83,62 @@ def epley_1rm(weight_kg: float, reps: int) -> float:
     return weight_kg * (1 + reps / 30)
 
 
-def _sets_with_dates(db: Session, exercise_id: int | None = None):
+def _sets_with_dates(
+    db: Session, exercise_id: int | None = None, include_warmups: bool = False
+):
     q = (
         select(models.WorkoutSet, models.Activity.date)
         .join(models.Activity, models.WorkoutSet.activity_id == models.Activity.id)
         .order_by(models.Activity.date, models.WorkoutSet.set_number)
     )
+    if not include_warmups:
+        q = q.where(models.WorkoutSet.is_warmup == 0)
     if exercise_id is not None:
         q = q.where(models.WorkoutSet.exercise_id == exercise_id)
     return db.execute(q).all()
+
+
+def last_session_data(
+    db: Session, exercise_ids: list[int], before_activity_id: int | None = None
+) -> dict[int, dict]:
+    """Most recent prior session's sets per exercise — for ghost prefill and
+    progressive-overload deltas. Excludes warm-ups and the current session."""
+    if not exercise_ids:
+        return {}
+    q = (
+        select(models.WorkoutSet, models.Activity.date, models.Activity.id)
+        .join(models.Activity, models.WorkoutSet.activity_id == models.Activity.id)
+        .where(
+            models.WorkoutSet.exercise_id.in_(exercise_ids),
+            models.WorkoutSet.is_warmup == 0,
+        )
+        .order_by(models.Activity.date, models.Activity.id, models.WorkoutSet.id)
+    )
+    if before_activity_id is not None:
+        q = q.where(models.Activity.id != before_activity_id)
+
+    # Rows arrive date-ascending; the last activity seen per exercise wins.
+    latest: dict[int, dict] = {}
+    for ws, d, act_id in db.execute(q).all():
+        cur = latest.get(ws.exercise_id)
+        if cur is None or cur["activity_id"] != act_id:
+            latest[ws.exercise_id] = cur = {
+                "date": d,
+                "activity_id": act_id,
+                "sets": [],
+                "best_e1rm": None,
+            }
+        cur["sets"].append(
+            {"set_number": len(cur["sets"]) + 1, "weight_kg": ws.weight_kg, "reps": ws.reps}
+        )
+        if ws.weight_kg is not None:
+            e1 = round(epley_1rm(ws.weight_kg, ws.reps), 1)
+            if cur["best_e1rm"] is None or e1 > cur["best_e1rm"]:
+                cur["best_e1rm"] = e1
+    return {
+        ex_id: {"date": v["date"], "sets": v["sets"], "best_e1rm": v["best_e1rm"]}
+        for ex_id, v in latest.items()
+    }
 
 
 def exercise_history(db: Session, exercise_id: int) -> list[dict]:
