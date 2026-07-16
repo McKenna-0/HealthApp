@@ -145,6 +145,14 @@ export interface SyncLogRow {
   error: string | null
 }
 
+export interface SyncStatus {
+  last_success_at: string | null
+  last_attempt_at: string | null
+  last_status: string | null
+  last_error: string | null
+  stale: boolean
+}
+
 export interface HealthStatus {
   status: string
   data_source: string
@@ -340,6 +348,41 @@ export interface StrengthAnalytics {
   weekly_volume: WeeklyVolume[]
   history?: ExerciseHistoryPoint[]
   prs?: {
+    best_e1rm: { e1rm: number; weight_kg: number; reps: number; date: string } | null
+    rep_prs: { reps: number; weight_kg: number; date: string }[]
+  }
+}
+
+export interface ExerciseOverviewRow {
+  exercise_id: number
+  name: string
+  category: string
+  last_date: string
+  total_workouts: number
+  best_e1rm: number | null
+}
+
+export interface ExerciseSessionSet {
+  weight_kg: number | null
+  reps: number
+  is_top: boolean
+}
+
+export interface ExerciseSessionPoint {
+  activity_id: number
+  date: string
+  sets: ExerciseSessionSet[]
+  best_e1rm: number | null
+  volume_kg: number
+  total_reps: number
+  max_reps: number
+  num_sets: number
+}
+
+export interface ExerciseStatsDetail {
+  exercise: { id: number; name: string; category: string }
+  sessions: ExerciseSessionPoint[]
+  prs: {
     best_e1rm: { e1rm: number; weight_kg: number; reps: number; date: string } | null
     rep_prs: { reps: number; weight_kg: number; date: string }[]
   }

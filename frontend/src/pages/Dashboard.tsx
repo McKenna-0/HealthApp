@@ -17,6 +17,7 @@ import {
 import { apiGet } from '../api/client'
 import type { Dashboard as DashboardData } from '../api/types'
 import ChartCard from '../components/ChartCard'
+import SyncStatusCard from '../components/SyncStatusCard'
 import MetricCard from '../components/MetricCard'
 import RangePicker from '../components/RangePicker'
 
@@ -119,6 +120,7 @@ export default function Dashboard() {
   return (
     <>
       <h1>Today</h1>
+      <SyncStatusCard />
       <ReadinessCard readiness={data.readiness} />
       <div className="metric-grid">
         <MetricCard label="Steps" value={today?.steps?.toLocaleString()} sub={avg.steps ? `7d ${Math.round(avg.steps).toLocaleString()}` : undefined} />

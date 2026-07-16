@@ -260,8 +260,24 @@ function ExerciseCard({
       </div>
 
       {sets.map((s) => {
-        const res = results[s.id]
         const num = sets.filter((x) => x.is_warmup === s.is_warmup && x.id <= s.id).length
+        let res = results[s.id]
+        if (!res && !s.is_warmup && ghost) {
+          // recompute delta vs last session (same rule as backend) so chips survive reload
+          const prev = ghost.sets.find((g) => g.set_number === num)
+          if (prev) {
+            res = {
+              set: s,
+              e1rm: null,
+              is_pr: false,
+              delta_weight_kg:
+                s.weight_kg != null && prev.weight_kg != null
+                  ? Math.round((s.weight_kg - prev.weight_kg) * 100) / 100
+                  : null,
+              delta_reps: s.reps - prev.reps,
+            }
+          }
+        }
         return (
           <div key={s.id} className={`set-row logged ${s.is_warmup ? 'warmup' : ''}`}>
             <span className={`set-num ${s.is_warmup ? 'warm' : ''}`}>{s.is_warmup ? 'W' : num}</span>

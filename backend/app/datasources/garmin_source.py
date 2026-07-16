@@ -188,9 +188,19 @@ class GarminSource(DataSource):
             try:
                 client.login(tokenstore)
             except Exception:
-                logger.info("Token login failed; performing fresh credential login")
-                client.login()
-                client.garth.dump(tokenstore)
+                logger.warning(
+                    "Token login failed; performing fresh credential login", exc_info=True
+                )
+                try:
+                    client.login()
+                    client.garth.dump(tokenstore)
+                except Exception as exc:
+                    logger.warning("Fresh Garmin login failed", exc_info=True)
+                    self._client = None  # force re-login on next sync
+                    raise RuntimeError(
+                        "Garmin login failed - check credentials or delete "
+                        ".garmin_tokens and restart"
+                    ) from exc
             self._client = client
         return self._client
 

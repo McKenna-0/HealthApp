@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_model: str = "meta-llama/llama-3.3-70b-instruct"
 
-    sync_lookback_days: int = 3
+    sync_lookback_days: int = 7
     catchup_after_hours: int = 12
 
 

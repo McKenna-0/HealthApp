@@ -316,6 +316,14 @@ class SyncLogOut(ORMModel):
     error: str | None
 
 
+class SyncStatusOut(BaseModel):
+    last_success_at: str | None
+    last_attempt_at: str | None
+    last_status: str | None
+    last_error: str | None
+    stale: bool
+
+
 # ---- write models --------------------------------------------------------------
 
 

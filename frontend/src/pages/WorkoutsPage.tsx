@@ -15,6 +15,7 @@ import { apiGet, apiPost } from '../api/client'
 import type {
   CardioAnalytics,
   Exercise,
+  ExerciseOverviewRow,
   MuscleAnalytics,
   SessionPayload,
   StrengthAnalytics,
@@ -45,13 +46,13 @@ function fmtDuration(min: number | null) {
 }
 
 export default function WorkoutsPage() {
-  const [tab, setTab] = useState<'history' | 'strength' | 'cardio'>('history')
+  const [tab, setTab] = useState<'history' | 'strength' | 'stats' | 'cardio'>('history')
   return (
     <>
       <h1>Workouts</h1>
       <ActiveBanner />
       <div className="tabs">
-        {(['history', 'strength', 'cardio'] as const).map((t) => (
+        {(['history', 'strength', 'stats', 'cardio'] as const).map((t) => (
           <button key={t} className={`chip ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -59,7 +60,55 @@ export default function WorkoutsPage() {
       </div>
       {tab === 'history' && <HistoryTab />}
       {tab === 'strength' && <StrengthTab />}
+      {tab === 'stats' && <StatsTab />}
       {tab === 'cardio' && <CardioTab />}
+    </>
+  )
+}
+
+function StatsTab() {
+  const [search, setSearch] = useState('')
+  const { data, isLoading } = useQuery({
+    queryKey: ['exercise-overview'],
+    queryFn: () =>
+      apiGet<{ exercises: ExerciseOverviewRow[] }>('/api/workouts/analytics/exercises'),
+  })
+  if (isLoading) return <p className="muted">Loading…</p>
+  const rows = (data?.exercises ?? []).filter((e) =>
+    e.name.toLowerCase().includes(search.toLowerCase()),
+  )
+  return (
+    <>
+      <input
+        placeholder="Search exercise…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        style={{ width: '100%', marginBottom: 10 }}
+      />
+      {rows.length === 0 ? (
+        <p className="muted">No exercises with logged sets yet.</p>
+      ) : (
+        <div className="card">
+          {rows.map((e) => (
+            <Link
+              key={e.exercise_id}
+              to={`/workouts/stats/${e.exercise_id}`}
+              style={{ textDecoration: 'none', color: 'inherit' }}
+            >
+              <div className="list-item">
+                <div className="main">
+                  <div className="name">{e.name}</div>
+                  <div className="detail">
+                    {e.total_workouts} workouts
+                    {e.best_e1rm != null ? ` · best e1RM ${e.best_e1rm}kg` : ''} · last {e.last_date}
+                  </div>
+                </div>
+                <span className="muted">›</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </>
   )
 }

@@ -163,6 +163,96 @@ def exercise_history(db: Session, exercise_id: int) -> list[dict]:
     return out
 
 
+def exercise_session_series(
+    db: Session, exercise_id: int, start_date: str | None = None
+) -> list[dict]:
+    """Per-session (keyed by activity, so same-day sessions stay separate)
+    aggregates for one exercise — feeds the Stats charts and history list."""
+    q = (
+        select(models.WorkoutSet, models.Activity.date, models.Activity.id)
+        .join(models.Activity, models.WorkoutSet.activity_id == models.Activity.id)
+        .where(
+            models.WorkoutSet.exercise_id == exercise_id,
+            models.WorkoutSet.is_warmup == 0,
+        )
+        .order_by(models.Activity.date, models.Activity.id, models.WorkoutSet.set_number)
+    )
+    if start_date is not None:
+        q = q.where(models.Activity.date >= start_date)
+
+    sessions: dict[int, dict] = {}
+    for ws, d, act_id in db.execute(q).all():
+        s = sessions.setdefault(
+            act_id,
+            {
+                "activity_id": act_id,
+                "date": d,
+                "sets": [],
+                "best_e1rm": None,
+                "volume_kg": 0.0,
+                "total_reps": 0,
+                "max_reps": 0,
+                "num_sets": 0,
+            },
+        )
+        idx = len(s["sets"])
+        s["sets"].append({"weight_kg": ws.weight_kg, "reps": ws.reps, "is_top": False})
+        s["num_sets"] += 1
+        s["total_reps"] += ws.reps
+        s["max_reps"] = max(s["max_reps"], ws.reps)
+        if ws.weight_kg is not None:
+            s["volume_kg"] += ws.weight_kg * ws.reps
+            e1 = round(epley_1rm(ws.weight_kg, ws.reps), 1)
+            if s["best_e1rm"] is None or e1 > s["best_e1rm"]:
+                s["best_e1rm"] = e1
+                s["_top_idx"] = idx
+
+    out = list(sessions.values())
+    for s in out:
+        top = s.pop("_top_idx", None)
+        if top is not None:
+            s["sets"][top]["is_top"] = True
+        s["volume_kg"] = round(s["volume_kg"], 1)
+    return out
+
+
+def exercise_overview(db: Session) -> list[dict]:
+    """One row per exercise that has logged sets: workout count, best e1RM, last date."""
+    rows = db.execute(
+        select(models.WorkoutSet, models.Activity.date)
+        .join(models.Activity, models.WorkoutSet.activity_id == models.Activity.id)
+        .where(models.WorkoutSet.is_warmup == 0)
+    ).all()
+    exercises = {e.id: e for e in db.scalars(select(models.Exercise))}
+    agg: dict[int, dict] = {}
+    activity_ids: dict[int, set[int]] = defaultdict(set)
+    for ws, d in rows:
+        ex = exercises.get(ws.exercise_id)
+        if ex is None:
+            continue
+        e = agg.setdefault(
+            ws.exercise_id,
+            {
+                "exercise_id": ws.exercise_id,
+                "name": ex.name,
+                "category": ex.category,
+                "last_date": d,
+                "total_workouts": 0,
+                "best_e1rm": None,
+            },
+        )
+        activity_ids[ws.exercise_id].add(ws.activity_id)
+        if d > e["last_date"]:
+            e["last_date"] = d
+        if ws.weight_kg is not None:
+            e1 = round(epley_1rm(ws.weight_kg, ws.reps), 1)
+            if e["best_e1rm"] is None or e1 > e["best_e1rm"]:
+                e["best_e1rm"] = e1
+    for ex_id, e in agg.items():
+        e["total_workouts"] = len(activity_ids[ex_id])
+    return sorted(agg.values(), key=lambda e: e["last_date"], reverse=True)
+
+
 def personal_records(db: Session, exercise_id: int) -> dict:
     """Best e1RM overall + best weight per rep count (1-10)."""
     best_e1rm = None

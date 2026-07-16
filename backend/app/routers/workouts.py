@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -118,6 +120,33 @@ def strength_analytics(
         out["history"] = strength.exercise_history(db, exercise_id)
         out["prs"] = strength.personal_records(db, exercise_id)
     return out
+
+
+_RANGE_DAYS = {"3m": 91, "6m": 182, "1y": 365}
+
+
+@router.get("/analytics/exercises")
+def exercise_stats_overview(db: Session = Depends(get_db)):
+    return {"exercises": strength.exercise_overview(db)}
+
+
+@router.get("/analytics/exercises/{exercise_id}")
+def exercise_stats_detail(
+    exercise_id: int,
+    range: str = Query(default="all", pattern="^(3m|6m|1y|all)$"),
+    db: Session = Depends(get_db),
+):
+    ex = db.get(models.Exercise, exercise_id)
+    if not ex:
+        raise HTTPException(404, "Exercise not found")
+    start_date = None
+    if range in _RANGE_DAYS:
+        start_date = (today_local() - timedelta(days=_RANGE_DAYS[range])).isoformat()
+    return {
+        "exercise": {"id": ex.id, "name": ex.name, "category": ex.category},
+        "sessions": strength.exercise_session_series(db, exercise_id, start_date),
+        "prs": strength.personal_records(db, exercise_id),
+    }
 
 
 @router.get("/analytics/cardio")
