@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..timeutil import iso_now
+from . import sessions
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ MUSCLES_MAP = {
 class ImportStats:
     workouts_created: int = 0
     workouts_skipped_existing: int = 0
+    workouts_linked_to_garmin: int = 0
     sets_created: int = 0
     exercises_created: list[str] = field(default_factory=list)
     bodyweight_entries: int = 0
@@ -62,6 +64,7 @@ class ImportStats:
         lines = [
             f"Workouts created:  {self.workouts_created}",
             f"Workouts skipped (already imported): {self.workouts_skipped_existing}",
+            f"Linked to Garmin activities: {self.workouts_linked_to_garmin}",
             f"Sets created:      {self.sets_created}",
             f"Bodyweight logs:   {self.bodyweight_entries}",
             f"Exercises created ({len(self.exercises_created)}):",
@@ -134,6 +137,7 @@ def import_csv(
 ) -> ImportStats:
     stats = ImportStats()
     resolver = _ExerciseResolver(db, stats)
+    created_activities: list[models.Activity] = []
 
     # group rows by exact Workout Start string, preserving file order
     groups: dict[str, list[dict]] = {}
@@ -247,11 +251,18 @@ def import_csv(
         act.total_reps = total_reps
         act.total_volume_kg = round(total_volume, 1)
         stats.workouts_created += 1
+        created_activities.append(act)
 
     if dry_run:
         db.rollback()
-    else:
-        db.commit()
+        return stats
+
+    db.commit()
+    # link imported workouts to overlapping Garmin strength activities so the
+    # watch metrics (HR/calories/duration) attach and duplicates are hidden
+    for act in created_activities:
+        if sessions.try_auto_link(db, act) is not None:
+            stats.workouts_linked_to_garmin += 1
     return stats
 
 

@@ -177,7 +177,8 @@ def _link_candidates(db: Session, session: models.Activity) -> list[models.Activ
         select(models.Activity).where(
             models.Activity.date == session.date,
             models.Activity.type == "strength_training",
-            models.Activity.source != "app",
+            models.Activity.source.not_in(["app", "repcount"]),
+            models.Activity.id != session.id,
             models.Activity.id.not_in(linked_ids),
         )
     ).all()

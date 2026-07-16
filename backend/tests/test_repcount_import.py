@@ -152,6 +152,36 @@ def test_dry_run_rolls_back(db):
     assert db.scalars(select(models.Activity)).all() == []
 
 
+def test_import_links_to_overlapping_garmin_activity(db):
+    garmin = models.Activity(
+        external_id="g1", date="2026-07-15", start_ts="2026-07-15 16:50:08",
+        type="strength_training", source="garmin", synced_at="x",
+        duration_min=43.0, avg_hr=90, max_hr=122, calories=165,
+    )
+    db.add(garmin)
+    db.commit()
+
+    stats = import_csv(db, [_row()])
+    assert stats.workouts_linked_to_garmin == 1
+    imported = db.scalar(
+        select(models.Activity).where(models.Activity.source == "repcount")
+    )
+    assert imported.linked_activity_id == garmin.id
+    assert imported.avg_hr == 90
+    assert imported.calories == 165
+
+
+def test_import_does_not_link_repcount_to_itself_or_each_other(db):
+    rows = [
+        _row(),
+        _row(**{"Workout Start": "2026-07-15 06:00", "Workout End": ""}),
+    ]
+    stats = import_csv(db, rows)
+    assert stats.workouts_linked_to_garmin == 0
+    for a in db.scalars(select(models.Activity)):
+        assert a.linked_activity_id is None
+
+
 def test_imported_sets_feed_ghosts_and_prs(db):
     import_csv(db, [_row(Weight="80", Reps="10")])
     ex = db.scalar(select(models.Exercise))
