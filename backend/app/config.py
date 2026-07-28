@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     ai_base_url: str = "https://openrouter.ai/api/v1"
     ai_api_key: str = ""
     ai_model: str = "meta-llama/llama-3.3-70b-instruct"
+    ai_vision_model: str = "google/gemini-2.0-flash-001"
 
     sync_lookback_days: int = 7
     catchup_after_hours: int = 12

@@ -9,6 +9,10 @@ interface Targets {
   carbs_target_g: number | null
   fat_target_g: number | null
   weight_goal_kg: number | null
+  macro_mode: string | null
+  protein_target_pct: number | null
+  carbs_target_pct: number | null
+  fat_target_pct: number | null
 }
 
 function TargetsCard() {
@@ -17,22 +21,30 @@ function TargetsCard() {
     queryKey: ['settings'],
     queryFn: () => apiGet<Targets>('/api/settings'),
   })
+  const [mode, setMode] = useState<'grams' | 'percent'>('grams')
   const [form, setForm] = useState({
     calorie_target: '',
     protein_target_g: '',
     carbs_target_g: '',
     fat_target_g: '',
     weight_goal_kg: '',
+    protein_target_pct: '',
+    carbs_target_pct: '',
+    fat_target_pct: '',
   })
 
   useEffect(() => {
     if (data) {
+      setMode((data.macro_mode as 'grams' | 'percent') || 'grams')
       setForm({
         calorie_target: data.calorie_target?.toString() ?? '',
         protein_target_g: data.protein_target_g?.toString() ?? '',
         carbs_target_g: data.carbs_target_g?.toString() ?? '',
         fat_target_g: data.fat_target_g?.toString() ?? '',
         weight_goal_kg: data.weight_goal_kg?.toString() ?? '',
+        protein_target_pct: data.protein_target_pct?.toString() ?? '',
+        carbs_target_pct: data.carbs_target_pct?.toString() ?? '',
+        fat_target_pct: data.fat_target_pct?.toString() ?? '',
       })
     }
   }, [data])
@@ -45,12 +57,16 @@ function TargetsCard() {
         carbs_target_g: form.carbs_target_g ? parseFloat(form.carbs_target_g) : null,
         fat_target_g: form.fat_target_g ? parseFloat(form.fat_target_g) : null,
         weight_goal_kg: form.weight_goal_kg ? parseFloat(form.weight_goal_kg) : null,
+        macro_mode: mode,
+        protein_target_pct: form.protein_target_pct ? parseFloat(form.protein_target_pct) : null,
+        carbs_target_pct: form.carbs_target_pct ? parseFloat(form.carbs_target_pct) : null,
+        fat_target_pct: form.fat_target_pct ? parseFloat(form.fat_target_pct) : null,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 
   const field = (key: keyof typeof form, label: string) => (
-    <div style={{ flex: 1 }}>
+    <div style={{ flex: 1, minWidth: 0 }}>
       <div className="muted" style={{ fontSize: '0.72rem', marginBottom: 2 }}>
         {label}
       </div>
@@ -64,21 +80,64 @@ function TargetsCard() {
     </div>
   )
 
+  const pctTotal =
+    (parseFloat(form.protein_target_pct) || 0) +
+    (parseFloat(form.carbs_target_pct) || 0) +
+    (parseFloat(form.fat_target_pct) || 0)
+
+  // Preview computed grams when in percent mode
+  const calTarget = parseFloat(form.calorie_target) || 0
+  const computedGrams = mode === 'percent' && calTarget > 0 ? {
+    protein: Math.round(calTarget * (parseFloat(form.protein_target_pct) || 0) / 100 / 4),
+    carbs: Math.round(calTarget * (parseFloat(form.carbs_target_pct) || 0) / 100 / 4),
+    fat: Math.round(calTarget * (parseFloat(form.fat_target_pct) || 0) / 100 / 9),
+  } : null
+
   return (
     <div className="card">
       <strong>Daily targets</strong>
       <div className="row" style={{ marginTop: 8, marginBottom: 8 }}>
         {field('calorie_target', 'Calories')}
-        {field('protein_target_g', 'Protein g')}
-        {field('carbs_target_g', 'Carbs g')}
-        {field('fat_target_g', 'Fat g')}
-      </div>
-      <div className="row" style={{ marginBottom: 8 }}>
         {field('weight_goal_kg', 'Weight goal kg')}
-        <div style={{ flex: 3 }} />
       </div>
+
+      <div className="muted" style={{ fontSize: '0.72rem', marginBottom: 4 }}>Macro targets</div>
+      <div className="tabs" style={{ marginBottom: 8 }}>
+        <button className={`chip ${mode === 'grams' ? 'active' : ''}`} onClick={() => setMode('grams')}>
+          Grams
+        </button>
+        <button className={`chip ${mode === 'percent' ? 'active' : ''}`} onClick={() => setMode('percent')}>
+          % of Calories
+        </button>
+      </div>
+
+      {mode === 'grams' ? (
+        <div className="row" style={{ marginBottom: 8 }}>
+          {field('protein_target_g', 'Protein g')}
+          {field('carbs_target_g', 'Carbs g')}
+          {field('fat_target_g', 'Fat g')}
+        </div>
+      ) : (
+        <>
+          <div className="row" style={{ marginBottom: 4 }}>
+            {field('protein_target_pct', 'Protein %')}
+            {field('carbs_target_pct', 'Carbs %')}
+            {field('fat_target_pct', 'Fat %')}
+          </div>
+          <div className="muted" style={{ fontSize: '0.7rem', marginBottom: 8 }}>
+            Total: {Math.round(pctTotal)}%{' '}
+            {pctTotal > 0 && Math.abs(pctTotal - 100) > 1 && (
+              <span style={{ color: 'var(--red)' }}>(should be 100%)</span>
+            )}
+            {computedGrams && (
+              <span> = {computedGrams.protein}g P / {computedGrams.carbs}g C / {computedGrams.fat}g F</span>
+            )}
+          </div>
+        </>
+      )}
+
       <button onClick={() => save.mutate()} disabled={save.isPending}>
-        {save.isPending ? 'Saving…' : 'Save targets'}
+        {save.isPending ? 'Saving...' : 'Save targets'}
       </button>
     </div>
   )

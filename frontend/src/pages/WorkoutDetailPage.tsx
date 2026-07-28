@@ -127,8 +127,16 @@ function WorkoutActions({ detail, workoutId }: { detail: WorkoutDetail; workoutI
     onSuccess: () => qc.invalidateQueries({ queryKey: ['routines'] }),
   })
 
+  const deleteWorkout = useMutation({
+    mutationFn: () => apiDelete(`/api/workouts/${workoutId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workouts'] })
+      navigate('/workouts')
+    },
+  })
+
   return (
-    <div className="row" style={{ marginBottom: 12 }}>
+    <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
       {a.source === 'app' && a.status === 'finished' && (
         <Link to={`/workouts/${workoutId}/summary`} style={{ display: 'flex' }}>
           <button className="secondary" style={{ width: '100%' }}>Summary</button>
@@ -151,9 +159,22 @@ function WorkoutActions({ detail, workoutId }: { detail: WorkoutDetail; workoutI
           </button>
         </>
       )}
-      {(repeat.isError || saveRoutine.isError) && (
+      {a.source !== 'garmin' && (
+        <button
+          className="secondary"
+          style={{ color: 'var(--red)' }}
+          disabled={deleteWorkout.isPending}
+          onClick={() => {
+            if (window.confirm('Delete this workout and all its data? This cannot be undone.'))
+              deleteWorkout.mutate()
+          }}
+        >
+          Delete
+        </button>
+      )}
+      {(repeat.isError || saveRoutine.isError || deleteWorkout.isError) && (
         <p className="error-text">
-          {String(repeat.error ?? saveRoutine.error).replace(/^\d+: /, '').slice(0, 120)}
+          {String(repeat.error ?? saveRoutine.error ?? deleteWorkout.error).replace(/^\d+: /, '').slice(0, 120)}
         </p>
       )}
     </div>

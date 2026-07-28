@@ -105,9 +105,15 @@ export interface FoodItem {
   carbs_g: number | null
   fat_g: number | null
   serving_size_g: number | null
+  serving_size_text: string | null
   is_favorite: number
   last_quantity_g?: number | null
   last_meal?: string | null
+}
+
+export interface ServingOption {
+  label: string
+  grams: number
 }
 
 export interface FoodLogRow {
@@ -133,6 +139,45 @@ export interface ContextRow {
   value: number | null
   label: string | null
   note: string | null
+}
+
+export type Meal = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
+export interface Checkin {
+  date: string
+  ts: string
+  mood: number | null
+  alcohol_units: number
+  caffeine_cups: number
+  caffeine_last_time: string | null
+  illness: number
+  eating_start: string | null
+  eating_end: string | null
+  note: string | null
+}
+
+export interface CheckinResponse {
+  exists: boolean
+  checkin: Checkin | null
+  derived_eating_start: string | null
+  derived_eating_end: string | null
+  fasting_hours: number | null
+  weight_kg: number | null
+}
+
+export interface WeekDayStatus {
+  date: string
+  weekday: string
+  food_logged: boolean
+  checkin_done: boolean
+  complete: boolean
+}
+
+export interface StreakInfo {
+  current_streak: number
+  longest_streak: number
+  today_complete: boolean
+  week: WeekDayStatus[]
 }
 
 export interface SyncLogRow {

@@ -109,6 +109,8 @@ class FoodCache(Base):
     carbs_g: Mapped[float | None] = mapped_column(Float)
     fat_g: Mapped[float | None] = mapped_column(Float)
     serving_size_g: Mapped[float | None] = mapped_column(Float)
+    serving_size_text: Mapped[str | None] = mapped_column(Text)
+    micronutrients_json: Mapped[str | None] = mapped_column(Text)
     raw_json: Mapped[str | None] = mapped_column(Text)
     cached_at: Mapped[str] = mapped_column(Text)
     is_favorite: Mapped[int] = mapped_column(Integer, default=0)
@@ -131,6 +133,23 @@ class FoodLog(Base):
     carbs_g: Mapped[float | None] = mapped_column(Float)
     fat_g: Mapped[float | None] = mapped_column(Float)
     logging_complete_day: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class DailyCheckin(Base):
+    """One row per date; row presence = daily check-in completed."""
+
+    __tablename__ = "daily_checkin"
+
+    date: Mapped[str] = mapped_column(Text, primary_key=True)  # YYYY-MM-DD
+    ts: Mapped[str] = mapped_column(Text)  # last-updated iso
+    mood: Mapped[int | None] = mapped_column(Integer)  # 1-5
+    alcohol_units: Mapped[float] = mapped_column(Float, default=0)
+    caffeine_cups: Mapped[float] = mapped_column(Float, default=0)
+    caffeine_last_time: Mapped[str | None] = mapped_column(Text)  # "HH:MM"
+    illness: Mapped[int] = mapped_column(Integer, default=0)
+    eating_start: Mapped[str | None] = mapped_column(Text)  # "HH:MM" override
+    eating_end: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class ContextLog(Base):

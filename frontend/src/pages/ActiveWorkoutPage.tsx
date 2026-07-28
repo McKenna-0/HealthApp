@@ -40,6 +40,7 @@ export default function ActiveWorkoutPage() {
   const [extraGhosts, setExtraGhosts] = useState<Record<string, ExerciseGhost>>({})
   const [results, setResults] = useState<Record<number, SetLogResult>>({})
   const [showPicker, setShowPicker] = useState(false)
+  const [removedExerciseIds, setRemovedExerciseIds] = useState<Set<number>>(new Set())
 
   const session = data?.active ?? null
   const workoutId = session?.activity.id
@@ -47,8 +48,9 @@ export default function ActiveWorkoutPage() {
   const exercises = useMemo(() => {
     if (!session) return []
     const seen = new Set(session.planned_exercises.map((p) => p.exercise_id))
-    return [...session.planned_exercises, ...extraExercises.filter((e) => !seen.has(e.exercise_id))]
-  }, [session, extraExercises])
+    const all = [...session.planned_exercises, ...extraExercises.filter((e) => !seen.has(e.exercise_id))]
+    return all.filter((e) => !removedExerciseIds.has(e.exercise_id))
+  }, [session, extraExercises, removedExerciseIds])
 
   const ghosts: Record<string, ExerciseGhost> = { ...(session?.ghosts ?? {}), ...extraGhosts }
   const sets: WorkoutSetBase[] = session?.sets ?? []
@@ -76,6 +78,7 @@ export default function ActiveWorkoutPage() {
 
   const addExercise = async (ex: Exercise) => {
     setShowPicker(false)
+    setRemovedExerciseIds((s) => { const n = new Set(s); n.delete(ex.id); return n })
     if (exercises.some((e) => e.exercise_id === ex.id)) return
     setExtraExercises((p) => [...p, { exercise_id: ex.id, name: ex.name, target_sets: 3 }])
     try {
@@ -144,6 +147,10 @@ export default function ActiveWorkoutPage() {
             qc.invalidateQueries({ queryKey: ['active-session'] })
           }}
           onDeleted={() => qc.invalidateQueries({ queryKey: ['active-session'] })}
+          onExerciseRemoved={() => {
+            setRemovedExerciseIds((s) => new Set(s).add(ex.exercise_id))
+            qc.invalidateQueries({ queryKey: ['active-session'] })
+          }}
         />
       ))}
 
@@ -194,6 +201,7 @@ function ExerciseCard({
   results,
   onLogged,
   onDeleted,
+  onExerciseRemoved,
 }: {
   exercise: PlannedExercise
   workoutId: number
@@ -202,6 +210,7 @@ function ExerciseCard({
   results: Record<number, SetLogResult>
   onLogged: (res: SetLogResult) => void
   onDeleted: () => void
+  onExerciseRemoved: () => void
 }) {
   const [weight, setWeight] = useState('')
   const [reps, setReps] = useState('')
@@ -245,18 +254,35 @@ function ExerciseCard({
     onSuccess: onDeleted,
   })
 
+  const removeExercise = useMutation({
+    mutationFn: () => apiDelete(`/api/workouts/${workoutId}/exercises/${exercise.exercise_id}/sets`),
+    onSuccess: onExerciseRemoved,
+  })
+
   const canLog = (reps !== '' && parseInt(reps) > 0) || ghostReps !== ''
 
   return (
     <div className="card exercise-card">
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
         <strong>{exercise.name}</strong>
-        {ghost && lastBest && (
-          <span className="muted fixed" style={{ fontSize: '0.75rem' }}>
-            Last: {lastBest.weight_kg != null ? `${lastBest.weight_kg} kg × ` : ''}
-            {lastBest.reps} ({ghost.date.slice(5)})
-          </span>
-        )}
+        <span className="row fixed" style={{ gap: 6, alignItems: 'center' }}>
+          {ghost && lastBest && (
+            <span className="muted" style={{ fontSize: '0.75rem' }}>
+              Last: {lastBest.weight_kg != null ? `${lastBest.weight_kg} kg × ` : ''}
+              {lastBest.reps} ({ghost.date.slice(5)})
+            </span>
+          )}
+          <button
+            className="del"
+            title="Remove exercise"
+            onClick={() => {
+              if (window.confirm(`Remove ${exercise.name} and all its sets?`))
+                removeExercise.mutate()
+            }}
+          >
+            ✕
+          </button>
+        </span>
       </div>
 
       {sets.map((s) => {

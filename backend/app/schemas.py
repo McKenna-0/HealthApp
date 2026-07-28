@@ -254,7 +254,13 @@ class FoodCacheOut(ORMModel):
     carbs_g: float | None
     fat_g: float | None
     serving_size_g: float | None
+    serving_size_text: str | None = None
     is_favorite: int = 0
+
+
+class ServingOption(BaseModel):
+    label: str
+    grams: float
 
 
 class RecentFoodOut(FoodCacheOut):
@@ -306,6 +312,58 @@ class ContextOut(ORMModel):
     note: str | None
 
 
+_HHMM = r"^\d{2}:\d{2}$"
+
+
+class CheckinIn(BaseModel):
+    mood: int | None = Field(default=None, ge=1, le=5)
+    alcohol_units: float = Field(default=0, ge=0, le=30)
+    caffeine_cups: float = Field(default=0, ge=0, le=15)
+    caffeine_last_time: str | None = Field(default=None, pattern=_HHMM)
+    illness: int = Field(default=0, ge=0, le=1)
+    eating_start: str | None = Field(default=None, pattern=_HHMM)
+    eating_end: str | None = Field(default=None, pattern=_HHMM)
+    weight_kg: float | None = Field(default=None, gt=20, lt=400)
+    note: str | None = None
+
+
+class CheckinOut(ORMModel):
+    date: str
+    ts: str
+    mood: int | None
+    alcohol_units: float
+    caffeine_cups: float
+    caffeine_last_time: str | None
+    illness: int
+    eating_start: str | None
+    eating_end: str | None
+    note: str | None
+
+
+class CheckinResponse(BaseModel):
+    exists: bool
+    checkin: CheckinOut | None = None
+    derived_eating_start: str | None = None
+    derived_eating_end: str | None = None
+    fasting_hours: float | None = None
+    weight_kg: float | None = None  # today's manual weight, for prefill
+
+
+class WeekDayStatus(BaseModel):
+    date: str
+    weekday: str
+    food_logged: bool
+    checkin_done: bool
+    complete: bool
+
+
+class StreakOut(BaseModel):
+    current_streak: int
+    longest_streak: int
+    today_complete: bool
+    week: list[WeekDayStatus]
+
+
 class SyncLogOut(ORMModel):
     id: int
     started_at: str
@@ -340,6 +398,7 @@ class FoodLogIn(BaseModel):
     description: str | None = None
     quantity_g: float | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)  # required if no cache item
+    ts: str | None = None  # optional ISO timestamp; server uses iso_now() if absent
 
 
 class FoodLogUpdate(BaseModel):
@@ -348,6 +407,7 @@ class FoodLogUpdate(BaseModel):
     calories: float | None = Field(default=None, ge=0)
     description: str | None = None
     logging_complete_day: int | None = Field(default=None, ge=0, le=1)
+    ts: str | None = None
 
 
 class ContextIn(BaseModel):

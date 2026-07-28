@@ -324,6 +324,30 @@ def unlink_workout(workout_id: int, db: Session = Depends(get_db)):
     return {"unlinked": workout_id}
 
 
+@router.delete("/{workout_id}")
+def delete_workout(workout_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, workout_id)
+    if act.source == "garmin":
+        raise HTTPException(409, "Garmin workouts cannot be deleted (they return on next sync)")
+    if act.status == "active":
+        raise HTTPException(409, "Use discard for active sessions")
+    sessions.delete_workout(db, act)
+    return {"deleted": workout_id}
+
+
+@router.delete("/{workout_id}/exercises/{exercise_id}/sets")
+def delete_exercise_sets(
+    workout_id: int, exercise_id: int, db: Session = Depends(get_db)
+):
+    _get_activity(db, workout_id)
+    count = db.query(models.WorkoutSet).filter(
+        models.WorkoutSet.activity_id == workout_id,
+        models.WorkoutSet.exercise_id == exercise_id,
+    ).delete()
+    db.commit()
+    return {"deleted_count": count}
+
+
 @router.post("/{workout_id}/sets", response_model=schemas.SetLogResult)
 def add_set(workout_id: int, body: schemas.WorkoutSetIn, db: Session = Depends(get_db)):
     act = _get_activity(db, workout_id)

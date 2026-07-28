@@ -1,11 +1,16 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
+import GlobalSyncButton from './components/GlobalSyncButton'
 import Dashboard from './pages/Dashboard'
 import SleepPage from './pages/SleepPage'
 import WeightEnergyPage from './pages/WeightEnergyPage'
 import LogPage from './pages/LogPage'
+import FoodLogPage from './pages/FoodLogPage'
+import CheckinPage from './pages/CheckinPage'
+import OtherLogsPage from './pages/OtherLogsPage'
 import SettingsPage from './pages/SettingsPage'
 import WorkoutsPage from './pages/WorkoutsPage'
 import WorkoutDetailPage from './pages/WorkoutDetailPage'
+import FoodDetailPage from './pages/FoodDetailPage'
 import ActiveWorkoutPage from './pages/ActiveWorkoutPage'
 import WorkoutSummaryPage from './pages/WorkoutSummaryPage'
 import RoutinesPage from './pages/RoutinesPage'
@@ -26,6 +31,7 @@ const tabs = [
 export default function App() {
   return (
     <div className="app">
+      <GlobalSyncButton />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/workouts" element={<WorkoutsPage />} />
@@ -37,6 +43,10 @@ export default function App() {
         <Route path="/sleep" element={<SleepPage />} />
         <Route path="/weight" element={<WeightEnergyPage />} />
         <Route path="/log" element={<LogPage />} />
+        <Route path="/log/food/:meal/detail" element={<FoodDetailPage />} />
+        <Route path="/log/food/:meal" element={<FoodLogPage />} />
+        <Route path="/log/checkin" element={<CheckinPage />} />
+        <Route path="/log/other" element={<OtherLogsPage />} />
         <Route path="/bloodwork" element={<BloodworkPage />} />
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/ai" element={<AIPage />} />

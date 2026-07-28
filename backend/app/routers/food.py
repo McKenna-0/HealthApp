@@ -1,11 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import base64
+import json as _json
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..config import settings
 from ..db import get_db
 from ..services import food_lookup
+from ..services.food_lookup import _parse_serving_grams
 from ..timeutil import iso_now
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/food", tags=["food"])
 
@@ -13,11 +22,19 @@ router = APIRouter(prefix="/api/food", tags=["food"])
 @router.get("/search", response_model=list[schemas.FoodCacheOut])
 def search(
     q: str = Query(min_length=2),
-    source: str = Query(default="off", pattern="^(off|usda|cache)$"),
+    source: str = Query(default="auto", pattern="^(auto|off|usda|cache)$"),
     db: Session = Depends(get_db),
 ):
     if source == "cache":
         return food_lookup.search_cache(db, q)
+    if source == "auto":
+        # OFF first (faster, better branded/packaged coverage), then USDA (generic/whole)
+        off_rows = food_lookup.search_and_cache(db, q, "off")
+        usda_rows = food_lookup.search_and_cache(db, q, "usda")
+        # Merge: OFF first, then USDA items not already present
+        seen_ids = {r.id for r in off_rows}
+        rows = list(off_rows) + [r for r in usda_rows if r.id not in seen_ids]
+        return rows or food_lookup.search_cache(db, q)
     rows = food_lookup.search_and_cache(db, q, source)
     return rows or food_lookup.search_cache(db, q)
 
@@ -56,7 +73,7 @@ def add_log(body: schemas.FoodLogIn, db: Session = Depends(get_db)):
     computed = _compute_entry(body, db)
     row = models.FoodLog(
         date=body.date,
-        ts=iso_now(),
+        ts=body.ts or iso_now(),
         meal=body.meal,
         food_cache_id=body.food_cache_id,
         **computed,
@@ -176,8 +193,6 @@ def list_custom(db: Session = Depends(get_db)):
 
 @router.post("/custom", response_model=schemas.FoodCacheOut)
 def add_custom(body: schemas.CustomFoodIn, db: Session = Depends(get_db)):
-    import uuid
-
     factor = 1.0
     if body.per_serving:
         if not body.serving_size_g:
@@ -248,6 +263,119 @@ def barcode(code: str, db: Session = Depends(get_db)):
     return {"found": True, "item": schemas.FoodCacheOut.model_validate(item).model_dump()}
 
 
+@router.get("/cache/{cache_id}", response_model=schemas.FoodCacheOut)
+def get_cache_item(cache_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.FoodCache, cache_id)
+    if not item:
+        raise HTTPException(404, "Not found")
+    return item
+
+
+@router.get("/cache/{cache_id}/servings", response_model=list[schemas.ServingOption])
+def get_servings(cache_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.FoodCache, cache_id)
+    if not item:
+        raise HTTPException(404, "Not found")
+    options: list[dict] = []
+    # Default serving from the item — show as first option when available
+    if item.serving_size_g and item.serving_size_g > 0:
+        label = item.serving_size_text or f"{item.serving_size_g:g}g (1 serving)"
+        options.append({"label": label, "grams": item.serving_size_g})
+    # Parse additional portions from raw_json
+    if item.raw_json:
+        try:
+            p = _json.loads(item.raw_json)
+            # USDA foodPortions (e.g. "1 large", "1 medium", "1 cup")
+            for portion in p.get("foodPortions", []):
+                gw = portion.get("gramWeight")
+                if not gw:
+                    continue
+                gw = float(gw)
+                desc = portion.get("portionDescription") or portion.get("modifier") or ""
+                amt = portion.get("amount")
+                if amt and desc:
+                    lbl = f"{amt} {desc}" if amt != 1 else desc
+                elif desc:
+                    lbl = desc
+                else:
+                    lbl = f"{gw:g}g"
+                lbl = f"{lbl} ({gw:g}g)"
+                options.append({"label": lbl, "grams": gw})
+            # OFF serving_size / serving_quantity
+            ss = p.get("serving_size") or ""
+            sq = p.get("serving_quantity")
+            if ss and sq:
+                options.append({"label": ss, "grams": float(sq)})
+            elif ss and not sq:
+                # Parse grams from serving_size text as fallback
+                parsed_g = _parse_serving_grams(ss)
+                if parsed_g and parsed_g > 0:
+                    lbl = ss if not ss.replace(".", "").replace(" ", "").isdigit() else f"{ss} (1 serving)"
+                    if not options:
+                        # No serving option yet — make this the first/default
+                        options.insert(0, {"label": lbl, "grams": parsed_g})
+                    else:
+                        options.append({"label": lbl, "grams": parsed_g})
+        except (ValueError, TypeError, KeyError):
+            pass
+    # Always include 100g and 1g
+    options.append({"label": "100g", "grams": 100})
+    options.append({"label": "1g", "grams": 1})
+    # De-duplicate by grams
+    seen: set[float] = set()
+    deduped = []
+    for o in options:
+        if o["grams"] not in seen:
+            seen.add(o["grams"])
+            deduped.append(o)
+    return deduped
+
+
+_NOVA_LABELS = {
+    1: "Unprocessed or minimally processed",
+    2: "Processed culinary ingredients",
+    3: "Processed foods",
+    4: "Ultra-processed foods",
+}
+
+
+@router.get("/cache/{cache_id}/nutrients")
+def get_nutrients(cache_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.FoodCache, cache_id)
+    if not item:
+        raise HTTPException(404, "Not found")
+    micros = _json.loads(item.micronutrients_json) if item.micronutrients_json else {}
+    # Extract food quality scores from raw_json (OFF products)
+    scores: dict = {}
+    if item.raw_json:
+        try:
+            p = _json.loads(item.raw_json)
+            ns = p.get("nutriscore_grade")
+            if ns:
+                scores["nutriscore_grade"] = ns.lower()
+            nova = p.get("nova_group")
+            if nova is not None:
+                nova = int(nova)
+                scores["nova_group"] = nova
+                scores["nova_group_label"] = _NOVA_LABELS.get(nova, "")
+            eco = p.get("ecoscore_grade")
+            if eco and eco != "not-applicable":
+                scores["ecoscore_grade"] = eco.lower()
+            ingredients = p.get("ingredients_text")
+            if ingredients:
+                scores["ingredients_text"] = ingredients
+        except (ValueError, TypeError, KeyError):
+            pass
+    return {
+        "kcal_per_100g": item.kcal_per_100g,
+        "protein_g": item.protein_g,
+        "carbs_g": item.carbs_g,
+        "fat_g": item.fat_g,
+        "micronutrients": micros,
+        "scores": scores,
+    }
+
+
 @router.get("/summary")
 def summary(start: str, end: str, db: Session = Depends(get_db)):
     rows = db.execute(
@@ -274,3 +402,84 @@ def summary(start: str, end: str, db: Session = Depends(get_db)):
         }
         for r in rows
     ]
+
+
+_OCR_PROMPT = """Extract the nutrition facts from this food label image.
+Return ONLY valid JSON with these fields (use null if not visible):
+{
+  "name": "product name if visible",
+  "serving_size_g": number or null,
+  "serving_size_text": "e.g. 1 cup (240ml)",
+  "calories": number,
+  "protein_g": number,
+  "carbs_g": number,
+  "fat_g": number,
+  "fiber_g": number or null,
+  "sugar_g": number or null,
+  "sodium_mg": number or null,
+  "saturated_fat_g": number or null,
+  "per_serving": true
+}
+All values should be PER SERVING as shown on the label.
+Return ONLY the JSON object, no markdown or explanation."""
+
+
+@router.post("/ocr-label")
+async def ocr_label(image: UploadFile = File(...)):
+    """Parse a nutrition label photo using a vision model."""
+    if not settings.ai_api_key:
+        raise HTTPException(503, "AI API key not configured")
+
+    content = await image.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Image too large (max 10MB)")
+
+    media_type = image.content_type or "image/jpeg"
+    b64 = base64.b64encode(content).decode()
+
+    import httpx
+    try:
+        resp = httpx.post(
+            f"{settings.ai_base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {settings.ai_api_key}"},
+            json={
+                "model": settings.ai_vision_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": _OCR_PROMPT},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{media_type};base64,{b64}",
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "max_tokens": 500,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("OCR vision API error: %s", exc)
+        raise HTTPException(502, "Vision API request failed")
+
+    raw_text = resp.json()["choices"][0]["message"]["content"]
+    # Strip markdown fences if present
+    text = raw_text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+    try:
+        parsed = _json.loads(text)
+    except _json.JSONDecodeError:
+        logger.warning("OCR response not valid JSON: %s", raw_text[:200])
+        raise HTTPException(422, "Could not parse nutrition data from image")
+
+    return {"ocr": parsed}

@@ -14,6 +14,10 @@ DEFAULTS = {
     "carbs_target_g": None,
     "fat_target_g": None,
     "weight_goal_kg": None,
+    "macro_mode": "grams",
+    "protein_target_pct": None,
+    "carbs_target_pct": None,
+    "fat_target_pct": None,
 }
 
 
@@ -23,6 +27,13 @@ class SettingsIn(BaseModel):
     carbs_target_g: float | None = Field(default=None, ge=0)
     fat_target_g: float | None = Field(default=None, ge=0)
     weight_goal_kg: float | None = Field(default=None, gt=20, lt=400)
+    macro_mode: str | None = Field(default=None, pattern="^(grams|percent)$")
+    protein_target_pct: float | None = Field(default=None, ge=0, le=100)
+    carbs_target_pct: float | None = Field(default=None, ge=0, le=100)
+    fat_target_pct: float | None = Field(default=None, ge=0, le=100)
+
+
+_STRING_KEYS = {"macro_mode"}
 
 
 @router.get("")
@@ -31,7 +42,10 @@ def get_settings(db: Session = Depends(get_db)):
     out = dict(DEFAULTS)
     for r in rows:
         if r.key in out:
-            out[r.key] = float(r.value) if r.value else None
+            if r.key in _STRING_KEYS:
+                out[r.key] = r.value if r.value else DEFAULTS[r.key]
+            else:
+                out[r.key] = float(r.value) if r.value else None
     return out
 
 

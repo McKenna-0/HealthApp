@@ -49,6 +49,7 @@ from .routers import (  # noqa: E402
     ai,
     analytics,
     bloodwork,
+    checkin,
     context,
     exercises,
     food,
@@ -65,6 +66,7 @@ app.include_router(metrics.router)
 app.include_router(weight.router)
 app.include_router(food.router)
 app.include_router(context.router)
+app.include_router(checkin.router)
 app.include_router(analytics.router)
 app.include_router(settings_router.router)
 app.include_router(workouts.router)

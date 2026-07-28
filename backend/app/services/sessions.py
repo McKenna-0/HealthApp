@@ -266,6 +266,20 @@ def discard_session(db: Session, session: models.Activity) -> None:
     db.commit()
 
 
+def delete_workout(db: Session, activity: models.Activity) -> None:
+    """Delete a finished workout and all related data."""
+    aid = activity.id
+    db.query(models.WorkoutSet).filter(models.WorkoutSet.activity_id == aid).delete()
+    db.query(models.ActivityLap).filter(models.ActivityLap.activity_id == aid).delete()
+    db.query(models.ActivityHrZone).filter(models.ActivityHrZone.activity_id == aid).delete()
+    # unlink any activity that points to this one
+    db.query(models.Activity).filter(
+        models.Activity.linked_activity_id == aid
+    ).update({models.Activity.linked_activity_id: None})
+    db.delete(activity)
+    db.commit()
+
+
 def session_summary(db: Session, act: models.Activity) -> dict:
     sets = db.scalars(
         select(models.WorkoutSet)
