@@ -12,6 +12,10 @@ import MetricCard from '../components/MetricCard'
 import MetricDrillDown from '../components/MetricDrillDown'
 import SyncStatusCard from '../components/SyncStatusCard'
 import SkeletonLoader from '../components/SkeletonLoader'
+import SleepDrillDown from '../components/drilldowns/SleepDrillDown'
+import WeightDrillDown from '../components/drilldowns/WeightDrillDown'
+import HrvDrillDown from '../components/drilldowns/HrvDrillDown'
+import GenericDrillDown from '../components/drilldowns/GenericDrillDown'
 
 const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
 
@@ -277,7 +281,13 @@ export default function Dashboard() {
           title={METRIC_DEFS[drillDown]?.label || drillDown}
           value={today ? getMetricValue(today, drillDown)?.toString() : undefined}
         >
-          <div className="text-caption">Detailed view coming soon</div>
+          {drillDown === 'sleep_score' && <SleepDrillDown />}
+          {drillDown === 'hrv' && <HrvDrillDown />}
+          {drillDown === 'weight' && <WeightDrillDown />}
+          {drillDown === 'calories_out' && <GenericDrillDown metricKey="calories_out" unit="kcal" />}
+          {drillDown === 'steps' && <GenericDrillDown metricKey="steps" />}
+          {drillDown === 'resting_hr' && <GenericDrillDown metricKey="resting_hr" unit="bpm" />}
+          {drillDown === 'body_battery' && <GenericDrillDown metricKey="body_battery_high" />}
         </MetricDrillDown>
       )}
     </div>
