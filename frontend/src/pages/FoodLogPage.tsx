@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Camera, Plus, ScanLine, Search, Star, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
@@ -7,6 +8,7 @@ import BarcodeScanner from '../components/BarcodeScanner'
 import CustomFoodForm from '../components/CustomFoodForm'
 import type { CustomFoodPrefill } from '../components/CustomFoodForm'
 import LabelScanner from '../components/LabelScanner'
+import SwipeToDelete from '../components/SwipeToDelete'
 
 const MEAL_LABELS: Record<Meal, string> = {
   breakfast: 'Breakfast',
@@ -156,7 +158,6 @@ export default function FoodLogPage() {
 
   const mealEntries = (log.data ?? []).filter((e) => e.meal === meal)
 
-  // Search: show recent matches first, then API results (de-duped)
   const lowerQuery = debounced.toLowerCase()
   const recentMatches = searching
     ? (recent.data ?? []).filter(
@@ -185,49 +186,69 @@ export default function FoodLogPage() {
         </div>
       </div>
       <button
-        className="del"
-        style={{ color: f.is_favorite ? '#fbbf24' : '#475569' }}
+        className="del fixed"
+        style={{
+          color: f.is_favorite ? 'var(--amber)' : 'var(--muted)',
+          padding: '8px',
+          minWidth: 44,
+          minHeight: 44,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
         onClick={() => toggleFavorite.mutate(f.id)}
+        aria-label={f.is_favorite ? 'Remove favorite' : 'Add favorite'}
       >
-        ★
+        <Star size={16} fill={f.is_favorite ? 'var(--amber)' : 'none'} />
       </button>
       <button
-        className="quick-add-btn"
+        className="quick-add-btn fixed"
         onClick={() => quickLog(f)}
         disabled={addItem.isPending}
         title={`Add ${f.last_quantity_g ?? f.serving_size_g ?? 100}g`}
       >
-        +
+        <Plus size={16} />
       </button>
     </div>
   )
 
   return (
     <>
-      <div className="row" style={{ marginBottom: 8, marginTop: 8 }}>
-        <button className="secondary fixed" onClick={() => navigate(`/log?date=${date}`)}>
-          ‹
+      {/* Header */}
+      <div className="row" style={{ marginBottom: 12, marginTop: 8 }}>
+        <button
+          className="secondary fixed"
+          onClick={() => navigate(`/log?date=${date}`)}
+          style={{ minWidth: 44, minHeight: 44, padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
         </button>
         <h1 style={{ margin: 0, flex: 1, textAlign: 'center' }}>{MEAL_LABELS[meal]}</h1>
         <span className="fixed" style={{ width: 44 }} />
       </div>
 
-      <input
-        placeholder="Search foods, brands…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ width: '100%', marginBottom: 10, padding: '12px 14px', fontSize: '1rem' }}
-      />
+      {/* Search */}
+      <div className="row" style={{ marginBottom: 10, position: 'relative' }}>
+        <Search size={16} style={{ position: 'absolute', left: 14, color: 'var(--muted)', pointerEvents: 'none' }} />
+        <input
+          placeholder="Search foods, brands…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ width: '100%', paddingLeft: 38, paddingRight: 14, paddingTop: 12, paddingBottom: 12, fontSize: '1rem' }}
+        />
+      </div>
 
-      <div className="row" style={{ marginBottom: 10 }}>
-        <button className="secondary" onClick={() => setScanning(true)}>
-          ⌷ Barcode
+      {/* Action buttons */}
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button className="secondary" onClick={() => setScanning(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <Camera size={15} /> Barcode
         </button>
-        <button className="secondary" onClick={() => setScanningLabel(true)}>
-          Scan label
+        <button className="secondary" onClick={() => setScanningLabel(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <ScanLine size={15} /> Scan label
         </button>
-        <button className="secondary" onClick={() => setShowQuickAdd((v) => !v)}>
-          ⚡ Quick add
+        <button className="secondary" onClick={() => setShowQuickAdd((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <Zap size={15} /> Quick add
         </button>
       </div>
 
@@ -247,10 +268,8 @@ export default function FoodLogPage() {
       )}
 
       {showQuickAdd && (
-        <div className="card">
-          <div className="muted" style={{ marginBottom: 8 }}>
-            Quick add (name + kcal)
-          </div>
+        <div className="card" style={{ marginBottom: 12 }}>
+          <p className="text-caption" style={{ marginBottom: 8 }}>Quick add (name + kcal)</p>
           <div className="row">
             <input placeholder="e.g. flat white" value={freeText} onChange={(e) => setFreeText(e.target.value)} style={{ minWidth: 0 }} />
             <input
@@ -268,23 +287,23 @@ export default function FoodLogPage() {
         </div>
       )}
 
-      {justAdded && <div className="toast">✓ Added {justAdded}</div>}
+      {justAdded && <div className="toast">Added {justAdded}</div>}
 
       {searching ? (
         <>
           {recentMatches.length > 0 && (
             <>
-              <h2 style={{ marginTop: 4, fontSize: '0.9rem' }}>Recent matches</h2>
+              <p className="settings-section-header" style={{ marginTop: 4 }}>Recent matches</p>
               <div className="card">{recentMatches.map(renderFoodRow)}</div>
             </>
           )}
-          <h2 style={{ marginTop: 4, fontSize: '0.9rem' }}>
+          <p className="settings-section-header" style={{ marginTop: recentMatches.length ? undefined : 4 }}>
             Search results
-            {search.isFetching && <span className="muted"> — searching…</span>}
-          </h2>
+            {search.isFetching && <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none' }}> — searching…</span>}
+          </p>
           <div className="card">
             {apiResults.length === 0 && !search.isFetching && (
-              <p className="muted">No results.</p>
+              <p className="text-caption">No results.</p>
             )}
             {apiResults.map(renderFoodRow)}
           </div>
@@ -295,7 +314,7 @@ export default function FoodLogPage() {
             {(
               [
                 ['history', 'History'],
-                ['favorites', '★ Favorites'],
+                ['favorites', 'Favorites'],
                 ['mine', 'My foods'],
               ] as const
             ).map(([k, label]) => (
@@ -304,14 +323,16 @@ export default function FoodLogPage() {
               </button>
             ))}
           </div>
-          {tab === 'history' && <h2 style={{ marginTop: 4 }}>Recently logged</h2>}
+          {tab === 'history' && (
+            <p className="settings-section-header" style={{ marginTop: 0 }}>Recently logged</p>
+          )}
           <div className="card">
-            {(tabList ?? []).length === 0 && <p className="muted">Nothing here yet.</p>}
+            {(tabList ?? []).length === 0 && <p className="text-caption">Nothing here yet.</p>}
             {(tabList ?? []).map(renderFoodRow)}
             {tab === 'mine' && (
               <>
                 {barcodeMiss && (
-                  <p className="error-text">Barcode not found — add it as a custom food:</p>
+                  <p className="error-text" style={{ marginBottom: 8 }}>Barcode not found — add it as a custom food:</p>
                 )}
                 <CustomFoodForm
                   prefill={labelPrefill ?? undefined}
@@ -328,11 +349,13 @@ export default function FoodLogPage() {
 
       {mealEntries.length > 0 && (
         <div className="card">
-          <strong>Added to {MEAL_LABELS[meal].toLowerCase()}</strong>
+          <p className="text-body" style={{ fontWeight: 600, marginBottom: 8 }}>
+            Added to {MEAL_LABELS[meal].toLowerCase()}
+          </p>
           {mealEntries.map((e) => (
-            <div key={e.id} className="list-item">
+            <SwipeToDelete key={e.id} onDelete={() => remove.mutate(e.id)}>
               <div
-                className="main"
+                className="list-item"
                 style={e.food_cache_id ? { cursor: 'pointer' } : undefined}
                 onClick={
                   e.food_cache_id
@@ -340,18 +363,17 @@ export default function FoodLogPage() {
                     : undefined
                 }
               >
-                <div className="name">{e.description ?? 'Food'}</div>
-                <div className="detail">
-                  {e.quantity_g ? `${e.quantity_g}g · ` : ''}
-                  {Math.round(e.calories)} cal
+                <div className="main">
+                  <div className="name">{e.description ?? 'Food'}</div>
+                  <div className="detail">
+                    {e.quantity_g ? `${e.quantity_g}g · ` : ''}
+                    {Math.round(e.calories)} cal
+                  </div>
                 </div>
               </div>
-              <button className="del" onClick={() => remove.mutate(e.id)}>
-                ✕
-              </button>
-            </div>
+            </SwipeToDelete>
           ))}
-          <div className="muted" style={{ textAlign: 'right', fontSize: '0.8rem', paddingTop: 6 }}>
+          <div className="text-caption" style={{ textAlign: 'right', paddingTop: 8 }}>
             {Math.round(mealEntries.reduce((a, e) => a + e.calories, 0))} cal total
           </div>
         </div>

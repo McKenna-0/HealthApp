@@ -1,43 +1,41 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../api/client'
 import type { CorrelationInsight, CorrelationsResponse } from '../api/types'
+import SkeletonLoader from '../components/SkeletonLoader'
 
-const STRENGTH_COLORS: Record<string, string> = {
-  strong: '#f87171',
-  moderate: '#fbbf24',
-  weak: '#38bdf8',
-  tentative: '#38bdf8',
-  none: '#64748b',
+function strengthClass(strength: string | null | undefined): string {
+  if (!strength || strength === 'none') return ''
+  return strength // 'strong' | 'moderate' | 'weak' | 'tentative'
 }
 
 export function InsightCard({ insight }: { insight: CorrelationInsight }) {
   if (insight.status === 'insufficient_data') {
     return (
-      <div className="card" style={{ opacity: 0.7 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <strong style={{ fontSize: '0.9rem' }}>{insight.title}</strong>
-          <span className="badge fixed" style={{ background: '#334155', color: '#94a3b8' }}>
+      <div className="insight-card" style={{ opacity: 0.7 }}>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+          <span className="text-body" style={{ fontWeight: 600 }}>{insight.title}</span>
+          <span className="badge" style={{ background: 'var(--card-elevated)', color: 'var(--muted)' }}>
             collecting
           </span>
         </div>
-        <p className="muted" style={{ margin: '4px 0 0' }}>
+        <p className="text-caption" style={{ margin: 0 }}>
           {insight.summary_line}
         </p>
       </div>
     )
   }
-  const color = STRENGTH_COLORS[insight.strength ?? 'none']
+  const cls = strengthClass(insight.strength)
   return (
-    <div className="card">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <strong style={{ fontSize: '0.9rem' }}>{insight.title}</strong>
+    <div className={`insight-card ${cls}`}>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+        <span className="text-body" style={{ fontWeight: 600 }}>{insight.title}</span>
         {insight.strength && insight.strength !== 'none' && (
-          <span className="badge fixed" style={{ background: color, color: '#0f172a' }}>
+          <span className="badge" style={{ background: 'var(--card-elevated)', color: 'var(--muted)' }}>
             {insight.strength}
           </span>
         )}
       </div>
-      <p style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>{insight.summary_line}</p>
+      <p className="text-caption" style={{ margin: 0 }}>{insight.summary_line}</p>
     </div>
   )
 }
@@ -48,7 +46,18 @@ export default function InsightsPage() {
     queryFn: () => apiGet<CorrelationsResponse>('/api/analytics/correlations?days=90'),
   })
 
-  if (isLoading) return <p className="muted">Loading…</p>
+  if (isLoading) {
+    return (
+      <>
+        <h1>Insights</h1>
+        {[1, 2, 3].map((i) => (
+          <div key={i} style={{ marginBottom: 12 }}>
+            <SkeletonLoader height="80px" borderRadius="14px" />
+          </div>
+        ))}
+      </>
+    )
+  }
 
   const established = (data?.insights ?? []).filter((i) => i.status === 'ok')
   const collecting = (data?.insights ?? []).filter((i) => i.status !== 'ok')
@@ -56,13 +65,13 @@ export default function InsightsPage() {
   return (
     <>
       <h1>Insights</h1>
-      <p className="muted" style={{ margin: '0 4px 12px' }}>
+      <p className="text-caption" style={{ margin: '0 4px 16px' }}>
         {data?.note} Based on your last {data?.days} days.
       </p>
 
       {established.length > 0 && (
         <>
-          <h2>What your data shows</h2>
+          <p className="settings-section-header" style={{ marginTop: 0 }}>What your data shows</p>
           {established.map((i) => (
             <InsightCard key={i.id} insight={i} />
           ))}
@@ -71,8 +80,8 @@ export default function InsightsPage() {
 
       {collecting.length > 0 && (
         <>
-          <h2>Still collecting data</h2>
-          <p className="muted" style={{ margin: '0 4px 8px' }}>
+          <p className="settings-section-header">Still collecting data</p>
+          <p className="text-caption" style={{ margin: '0 4px 8px' }}>
             Keep logging context (alcohol, caffeine, illness) — these unlock as data accumulates.
           </p>
           {collecting.map((i) => (

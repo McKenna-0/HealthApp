@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Send, Trash2, Zap, CalendarDays } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { apiDelete, apiGet, apiPost } from '../api/client'
+import SwipeToDelete from '../components/SwipeToDelete'
 
 interface AIStatus {
   configured: boolean
@@ -41,7 +43,7 @@ export default function AIPage() {
       <>
         <h1>AI Analyst</h1>
         <div className="card">
-          <strong>Not configured</strong>
+          <p className="text-title" style={{ marginBottom: 8 }}>Not configured</p>
           <p className="muted">
             Get a key at openrouter.ai/keys, then set <code>AI_API_KEY</code> in your <code>.env</code> file and
             restart the backend. Reports cost pennies with open models. Prefer paid models with no-logging
@@ -55,7 +57,7 @@ export default function AIPage() {
   return (
     <>
       <h1>AI Analyst</h1>
-      <p className="muted" style={{ margin: '0 4px 12px' }}>
+      <p className="text-caption" style={{ margin: '0 4px 12px' }}>
         Model: {status.data?.model ?? '…'}
       </p>
       <div className="tabs">
@@ -102,7 +104,12 @@ function ReportsTab() {
 
   return (
     <>
-      <button style={{ width: '100%', marginBottom: 12 }} onClick={() => generate.mutate()} disabled={generate.isPending}>
+      <button
+        style={{ width: '100%', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        onClick={() => generate.mutate()}
+        disabled={generate.isPending}
+      >
+        <Zap size={16} />
         {generate.isPending ? 'Analysing your data… (up to a minute)' : 'Generate report now'}
       </button>
       {generate.isError && (
@@ -112,10 +119,10 @@ function ReportsTab() {
       {openId != null && report.data && (
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-            <strong>
+            <span className="text-body" style={{ fontWeight: 600 }}>
               {report.data.period_start} → {report.data.period_end}
-            </strong>
-            <button className="secondary fixed" onClick={() => setOpenId(null)}>
+            </span>
+            <button className="secondary fixed" onClick={() => setOpenId(null)} style={{ padding: '8px 14px' }}>
               Close
             </button>
           </div>
@@ -126,23 +133,29 @@ function ReportsTab() {
       )}
 
       <div className="card">
-        <strong>History</strong>
+        <p className="text-title" style={{ marginBottom: 8 }}>History</p>
         {(reports.data ?? []).length === 0 && <p className="muted">No reports yet.</p>}
         {(reports.data ?? []).map((r) => (
-          <div key={r.id} className="list-item">
-            <div className="main" onClick={() => setOpenId(r.id)} style={{ cursor: 'pointer' }}>
-              <div className="name">
-                {r.kind === 'weekly' ? '🗓 Weekly' : '⚡ On demand'} · {r.created_at.slice(0, 10)}
+          <SwipeToDelete key={r.id} onDelete={() => remove.mutate(r.id)}>
+            <div className="list-item" onClick={() => setOpenId(r.id)} style={{ cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                {r.kind === 'weekly'
+                  ? <CalendarDays size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                  : <Zap size={16} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+                }
+                <div className="main">
+                  <div className="name">
+                    {r.kind === 'weekly' ? 'Weekly' : 'On demand'} · {r.created_at.slice(0, 10)}
+                  </div>
+                  <div className="detail">
+                    {r.period_start} → {r.period_end} · {r.model.split('/').pop()}
+                    {r.status === 'error' ? ' · failed' : ''}
+                  </div>
+                </div>
               </div>
-              <div className="detail">
-                {r.period_start} → {r.period_end} · {r.model.split('/').pop()}
-                {r.status === 'error' ? ' · failed' : ''}
-              </div>
+              <Trash2 size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
             </div>
-            <button className="del" onClick={() => remove.mutate(r.id)}>
-              ✕
-            </button>
-          </div>
+          </SwipeToDelete>
         ))}
       </div>
     </>
@@ -170,39 +183,48 @@ function ChatTab() {
 
   return (
     <>
-      <div className="card">
+      <div className="chat-messages">
         {messages.length === 0 && (
-          <p className="muted">
-            Ask about your data — e.g. "How did alcohol affect my sleep this month?" or "Am I eating enough
-            protein for my training?"
-          </p>
+          <div className="card">
+            <p className="muted">
+              Ask about your data — e.g. "How did alcohol affect my sleep this month?" or "Am I eating enough
+              protein for my training?"
+            </p>
+          </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 10 }}>
-            <div className="muted" style={{ fontSize: '0.72rem' }}>
-              {m.role === 'user' ? 'You' : 'Analyst'}
-            </div>
+          <div key={i} className={`chat-msg ${m.role}`}>
             {m.role === 'assistant' ? (
               <div className="report-md">
                 <ReactMarkdown>{m.content}</ReactMarkdown>
               </div>
             ) : (
-              <div>{m.content}</div>
+              m.content
             )}
           </div>
         ))}
-        {ask.isPending && <p className="muted">Thinking…</p>}
+        {ask.isPending && (
+          <div className="chat-msg assistant">
+            <span className="muted">Thinking…</span>
+          </div>
+        )}
         {ask.isError && <p className="error-text">{String(ask.error).replace(/^\d+: /, '').slice(0, 200)}</p>}
       </div>
-      <div className="row">
+
+      <div className="chat-input-bar">
         <input
           placeholder="Ask about your health data…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
         />
-        <button className="fixed" onClick={send} disabled={ask.isPending || !input.trim()}>
-          Send
+        <button
+          className="fixed"
+          onClick={send}
+          disabled={ask.isPending || !input.trim()}
+          style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Send size={16} />
         </button>
       </div>
     </>

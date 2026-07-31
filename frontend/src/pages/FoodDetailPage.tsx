@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiGet, apiPost, apiPut } from '../api/client'
 import type { FoodItem, FoodLogRow, Meal, ServingOption } from '../api/types'
 import CalorieDonut from '../components/CalorieDonut'
 import ProgressBar from '../components/ProgressBar'
+import SkeletonLoader from '../components/SkeletonLoader'
 
 const NUTRI_COLORS: Record<string, string> = {
   a: '#038141', b: '#85bb2f', c: '#fecb02', d: '#ee8100', e: '#e63e11',
@@ -18,7 +20,7 @@ function NutriScoreBadge({ grade }: { grade: string }) {
   const g = grade.toLowerCase()
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-      <span className="muted" style={{ fontSize: '0.65rem' }}>Nutri-Score</span>
+      <span className="text-caption">Nutri-Score</span>
       <div style={{
         background: NUTRI_COLORS[g] ?? '#888', color: '#fff', fontWeight: 700,
         width: 32, height: 32, borderRadius: 6, display: 'flex', alignItems: 'center',
@@ -31,13 +33,13 @@ function NutriScoreBadge({ grade }: { grade: string }) {
 function NovaBadge({ group, label }: { group: number; label?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, maxWidth: 120 }}>
-      <span className="muted" style={{ fontSize: '0.65rem' }}>NOVA Group</span>
+      <span className="text-caption">NOVA Group</span>
       <div style={{
         background: NOVA_COLORS[group] ?? '#888', color: '#fff', fontWeight: 700,
         width: 32, height: 32, borderRadius: 6, display: 'flex', alignItems: 'center',
         justifyContent: 'center', fontSize: '1rem',
       }}>{group}</div>
-      {label && <span className="muted" style={{ fontSize: '0.6rem', textAlign: 'center', lineHeight: 1.2 }}>{label}</span>}
+      {label && <span className="text-caption" style={{ textAlign: 'center', lineHeight: 1.2 }}>{label}</span>}
     </div>
   )
 }
@@ -46,7 +48,7 @@ function EcoScoreBadge({ grade }: { grade: string }) {
   const g = grade.toLowerCase()
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-      <span className="muted" style={{ fontSize: '0.65rem' }}>Eco-Score</span>
+      <span className="text-caption">Eco-Score</span>
       <div style={{
         background: ECO_COLORS[g] ?? '#888', color: '#fff', fontWeight: 700,
         width: 32, height: 32, borderRadius: 6, display: 'flex', alignItems: 'center',
@@ -117,7 +119,7 @@ export default function FoodDetailPage() {
   const isEdit = !!logId
 
   const [meal, setMeal] = useState<Meal>((mealParam ?? 'snack') as Meal)
-  const [servingIdx, setServingIdx] = useState(-1) // -1 = not yet initialised
+  const [servingIdx, setServingIdx] = useState(-1)
   const [servings, setServings] = useState('1')
   const [time, setTime] = useState(nowHHMM())
   const [loaded, setLoaded] = useState(false)
@@ -136,7 +138,6 @@ export default function FoodDetailPage() {
     enabled: isEdit,
   })
 
-  // Fetch all favorites + recent to find our item
   const allRecent = useQuery({
     queryKey: ['food-recent'],
     queryFn: () => apiGet<FoodItem[]>('/api/food/recent'),
@@ -175,14 +176,12 @@ export default function FoodDetailPage() {
 
   const cid = Number(cacheId)
 
-  // Direct lookup by ID — always enabled, acts as fallback when item isn't in recent/favs/custom
   const directLookup = useQuery({
     queryKey: ['food-cache-item', cacheId],
     queryFn: () => apiGet<FoodItem>(`/api/food/cache/${cacheId}`),
     enabled: !!cacheId,
   })
 
-  // Find the food item from any loaded list or direct lookup
   const item: FoodItem | null =
     allRecent.data?.find((f) => f.id === cid) ??
     allFavs.data?.find((f) => f.id === cid) ??
@@ -190,11 +189,9 @@ export default function FoodDetailPage() {
     directLookup.data ??
     null
 
-  // Initialise serving index once options load
   if (servingOptions.data && !loaded) {
     const opts = servingOptions.data
     if (isEdit && existingLog.data) {
-      // Edit mode: reverse-compute from the logged quantity
       setLoaded(true)
       const entry = existingLog.data
       setMeal(entry.meal as Meal)
@@ -215,8 +212,6 @@ export default function FoodDetailPage() {
       }
       setServingIdx(bestIdx)
     } else if (!isEdit && servingIdx === -1) {
-      // New item: default to the food's recommended serving (first option)
-      // which is serving_size_g if available, not 100g
       setLoaded(true)
       setServingIdx(0)
     }
@@ -247,18 +242,10 @@ export default function FoodDetailPage() {
     mutationFn: () => {
       const ts = `${date}T${time}:00`
       if (isEdit && logId) {
-        return apiPut(`/api/food/log/${logId}`, {
-          meal,
-          quantity_g: finalGrams,
-          ts,
-        })
+        return apiPut(`/api/food/log/${logId}`, { meal, quantity_g: finalGrams, ts })
       }
       return apiPost('/api/food/log', {
-        date,
-        meal,
-        food_cache_id: Number(cacheId),
-        quantity_g: finalGrams,
-        ts,
+        date, meal, food_cache_id: Number(cacheId), quantity_g: finalGrams, ts,
       })
     },
     onSuccess: () => {
@@ -269,14 +256,29 @@ export default function FoodDetailPage() {
 
   const backPath = `/log/food/${mealParam ?? meal}?date=${date}`
 
-  if (!item) {
-    if (directLookup.isLoading || allRecent.isLoading) {
-      return <p className="muted">Loading…</p>
-    }
+  if (!item && (directLookup.isLoading || allRecent.isLoading)) {
+    return (
+      <>
+        <div className="row" style={{ marginBottom: 12, marginTop: 8 }}>
+          <button
+            className="secondary fixed"
+            onClick={() => navigate(backPath)}
+            style={{ minWidth: 44, minHeight: 44, padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <span style={{ flex: 1 }} />
+          <span className="fixed" style={{ width: 44 }} />
+        </div>
+        <SkeletonLoader height="160px" borderRadius="14px" />
+        <div style={{ marginTop: 12 }}>
+          <SkeletonLoader height="200px" borderRadius="14px" />
+        </div>
+      </>
+    )
   }
 
   const t = targets.data
-  // Resolve macro targets: if percent mode, compute grams from calorie target
   const proteinTarget = t?.macro_mode === 'percent' && t.calorie_target && t.protein_target_pct
     ? Math.round(t.calorie_target * t.protein_target_pct / 100 / 4)
     : t?.protein_target_g ?? null
@@ -289,9 +291,15 @@ export default function FoodDetailPage() {
 
   return (
     <>
+      {/* Header */}
       <div className="row" style={{ marginBottom: 8, marginTop: 8 }}>
-        <button className="secondary fixed" onClick={() => navigate(backPath)}>
-          ‹
+        <button
+          className="secondary fixed"
+          onClick={() => navigate(backPath)}
+          style={{ minWidth: 44, minHeight: 44, padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
         </button>
         <h1 style={{ margin: 0, flex: 1, textAlign: 'center', fontSize: '1.1rem' }}>
           {item?.name ?? 'Food'}
@@ -300,14 +308,15 @@ export default function FoodDetailPage() {
       </div>
 
       {item?.brand && (
-        <p className="muted" style={{ textAlign: 'center', margin: '0 0 12px', fontSize: '0.82rem' }}>
+        <p className="text-caption" style={{ textAlign: 'center', margin: '0 0 12px' }}>
           {item.brand}
         </p>
       )}
 
+      {/* Serving controls */}
       <div className="card">
         <div style={{ marginBottom: 12 }}>
-          <label className="muted" style={{ fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>
+          <label className="text-caption" style={{ display: 'block', marginBottom: 4 }}>
             Serving Size
           </label>
           <select
@@ -319,15 +328,13 @@ export default function FoodDetailPage() {
             }}
           >
             {opts.map((o, i) => (
-              <option key={i} value={i}>
-                {o.label}
-              </option>
+              <option key={i} value={i}>{o.label}</option>
             ))}
           </select>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label className="muted" style={{ fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>
+          <label className="text-caption" style={{ display: 'block', marginBottom: 4 }}>
             Number of Servings
           </label>
           <input
@@ -343,49 +350,41 @@ export default function FoodDetailPage() {
 
         <div className="row" style={{ gap: 12 }}>
           <div style={{ flex: '0 0 auto' }}>
-            <label className="muted" style={{ fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>
-              Time
-            </label>
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
+            <label className="text-caption" style={{ display: 'block', marginBottom: 4 }}>Time</label>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <label className="muted" style={{ fontSize: '0.75rem', display: 'block', marginBottom: 4 }}>
-              Meal
-            </label>
+            <label className="text-caption" style={{ display: 'block', marginBottom: 4 }}>Meal</label>
             <select
               className="serving-select"
               value={meal}
               onChange={(e) => setMeal(e.target.value as Meal)}
             >
               {MEALS.map((m) => (
-                <option key={m} value={m}>
-                  {MEAL_LABELS[m]}
-                </option>
+                <option key={m} value={m}>{MEAL_LABELS[m]}</option>
               ))}
             </select>
           </div>
         </div>
       </div>
 
+      {/* Calorie donut */}
       {item && (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <CalorieDonut calories={cal} protein_g={prot} carbs_g={carbs} fat_g={fat} />
         </div>
       )}
 
+      {/* Daily goals */}
       {t && (t.calorie_target || proteinTarget || carbsTarget || fatTarget) && (
         <div className="card">
-          <strong style={{ fontSize: '0.85rem' }}>% of Daily Goals</strong>
-          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p className="text-body" style={{ fontWeight: 600, marginBottom: 10 }}>% of Daily Goals</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {t.calorie_target != null && (
               <div>
                 <div className="row" style={{ justifyContent: 'space-between', fontSize: '0.78rem' }}>
                   <span>Calories</span>
-                  <span className="muted">{Math.round((cal / t.calorie_target) * 100)}%</span>
+                  <span className="text-caption">{Math.round((cal / t.calorie_target) * 100)}%</span>
                 </div>
                 <ProgressBar value={cal} target={t.calorie_target} />
               </div>
@@ -401,7 +400,7 @@ export default function FoodDetailPage() {
                 <div key={label}>
                   <div className="row" style={{ justifyContent: 'space-between', fontSize: '0.78rem' }}>
                     <span>{label}</span>
-                    <span className="muted">
+                    <span className="text-caption">
                       {Math.round(val)}g / {Math.round(target)}g · {Math.round((val / target) * 100)}%
                     </span>
                   </div>
@@ -413,10 +412,11 @@ export default function FoodDetailPage() {
         </div>
       )}
 
+      {/* Food quality scores */}
       {nutrients.data?.scores && Object.keys(nutrients.data.scores).length > 0 && (
         <div className="card">
-          <strong style={{ fontSize: '0.85rem' }}>Food Quality</strong>
-          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <p className="text-body" style={{ fontWeight: 600, marginBottom: 10 }}>Food Quality</p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             {nutrients.data.scores.nutriscore_grade && (
               <NutriScoreBadge grade={nutrients.data.scores.nutriscore_grade} />
             )}
@@ -428,9 +428,9 @@ export default function FoodDetailPage() {
             )}
           </div>
           {nutrients.data.scores.ingredients_text && (
-            <details style={{ marginTop: 8 }}>
-              <summary className="muted" style={{ fontSize: '0.75rem', cursor: 'pointer' }}>Ingredients</summary>
-              <p className="muted" style={{ fontSize: '0.72rem', margin: '4px 0 0', lineHeight: 1.4 }}>
+            <details style={{ marginTop: 10 }}>
+              <summary className="text-caption" style={{ cursor: 'pointer' }}>Ingredients</summary>
+              <p className="text-caption" style={{ margin: '6px 0 0', lineHeight: 1.5 }}>
                 {nutrients.data.scores.ingredients_text}
               </p>
             </details>
@@ -438,10 +438,11 @@ export default function FoodDetailPage() {
         </div>
       )}
 
+      {/* Nutrition facts */}
       {item && (
         <div className="card">
-          <strong style={{ fontSize: '0.85rem' }}>Nutrition Facts</strong>
-          <p className="muted" style={{ margin: '4px 0 8px', fontSize: '0.75rem' }}>
+          <p className="text-body" style={{ fontWeight: 600, marginBottom: 4 }}>Nutrition Facts</p>
+          <p className="text-caption" style={{ margin: '0 0 10px' }}>
             Per {selectedServing.label} × {servingsNum} ({Math.round(finalGrams)}g)
           </p>
           <table className="nutrition-facts">
@@ -468,31 +469,30 @@ export default function FoodDetailPage() {
                   <td>{fat.toFixed(1)}g</td>
                 </tr>
               )}
-              {nutrients.data &&
-                Object.keys(nutrients.data.micronutrients).length > 0 && (
-                  <>
-                    <tr>
-                      <td colSpan={2} style={{ paddingTop: 10, fontWeight: 600, borderBottom: '2px solid var(--border)' }}>
-                        Vitamins & Minerals
-                      </td>
-                    </tr>
-                    {MICRO_LABELS.filter(([key]) => nutrients.data!.micronutrients[key] != null).map(
-                      ([key, label, unit]) => {
-                        const per100 = nutrients.data!.micronutrients[key]
-                        const scaled = Math.round(per100 * factor * 100) / 100
-                        return (
-                          <tr key={key}>
-                            <td>{label}</td>
-                            <td>
-                              {scaled < 1 ? scaled.toFixed(2) : scaled.toFixed(1)}
-                              {unit}
-                            </td>
-                          </tr>
-                        )
-                      },
-                    )}
-                  </>
-                )}
+              {nutrients.data && Object.keys(nutrients.data.micronutrients).length > 0 && (
+                <>
+                  <tr>
+                    <td colSpan={2} style={{ paddingTop: 10, fontWeight: 600, borderBottom: '2px solid var(--border)' }}>
+                      Vitamins & Minerals
+                    </td>
+                  </tr>
+                  {MICRO_LABELS.filter(([key]) => nutrients.data!.micronutrients[key] != null).map(
+                    ([key, label, unit]) => {
+                      const per100 = nutrients.data!.micronutrients[key]
+                      const scaled = Math.round(per100 * factor * 100) / 100
+                      return (
+                        <tr key={key}>
+                          <td>{label}</td>
+                          <td>
+                            {scaled < 1 ? scaled.toFixed(2) : scaled.toFixed(1)}
+                            {unit}
+                          </td>
+                        </tr>
+                      )
+                    },
+                  )}
+                </>
+              )}
             </tbody>
           </table>
         </div>
