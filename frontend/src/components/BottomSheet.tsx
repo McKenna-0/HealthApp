@@ -29,7 +29,7 @@ export default function BottomSheet({
             <span className="text-title">{title}</span>
             <button
               onClick={onClose}
-              style={{ background: 'none', border: 'none', color: 'var(--muted)', padding: 8 }}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', padding: 12 }}
               aria-label="Close"
             >
               <X size={20} />
