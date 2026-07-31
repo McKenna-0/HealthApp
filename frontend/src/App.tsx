@@ -44,10 +44,10 @@ export default function App() {
         <h1>{pageTitle}</h1>
         <div className="header-actions">
           <GlobalSyncButton hide={isActiveWorkout} />
-          <NavLink to="/ai" className="header-btn" aria-label="AI assistant">
+          <NavLink to="/ai" className={({isActive}) => `header-btn${isActive ? ' active' : ''}`} aria-label="AI assistant">
             <Sparkles size={20} />
           </NavLink>
-          <NavLink to="/settings" className="header-btn" aria-label="Settings">
+          <NavLink to="/settings" className={({isActive}) => `header-btn${isActive ? ' active' : ''}`} aria-label="Settings">
             <Settings size={20} />
           </NavLink>
         </div>
