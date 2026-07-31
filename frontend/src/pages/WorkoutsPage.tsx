@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Bike, ChevronRight, Dumbbell, Footprints, PersonStanding, Waves } from 'lucide-react'
+import { Activity, Bike, ChevronRight, Dumbbell, Footprints, Waves } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -34,7 +34,7 @@ const tooltipStyle = {
 
 function WorkoutTypeIcon({ type, size = 20 }: { type: string | null; size?: number }) {
   switch (type) {
-    case 'running': return <PersonStanding size={size} color="var(--accent)" />
+    case 'running': return <Footprints size={size} color="var(--accent)" />
     case 'cycling': return <Bike size={size} color="var(--accent)" />
     case 'swimming': return <Waves size={size} color="var(--accent)" />
     case 'strength_training': return <Dumbbell size={size} color="var(--accent)" />
@@ -329,7 +329,7 @@ function CardioTab() {
 
   function CardioTypeIcon({ t }: { t: string }) {
     switch (t) {
-      case 'running': return <PersonStanding size={14} />
+      case 'running': return <Footprints size={14} />
       case 'cycling': return <Bike size={14} />
       case 'swimming': return <Waves size={14} />
       case 'walking': return <Footprints size={14} />

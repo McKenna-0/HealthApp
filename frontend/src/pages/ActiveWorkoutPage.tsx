@@ -456,62 +456,64 @@ function ExerciseCard({
             const isEditing = editingSetId === s.id
 
             return (
-              <SwipeToDelete key={s.id} onDelete={() => del.mutate(s.id)}>
-                {isEditing ? (
-                  <div className="set-row logged" style={{ gap: 6, flexWrap: 'wrap' }}>
-                    <span className={`set-num ${s.is_warmup ? 'warm' : ''}`}>{s.is_warmup ? 'W' : num}</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      className="set-input"
-                      value={editWeight}
-                      onChange={(e) => setEditWeight(e.target.value)}
-                      placeholder="kg"
-                      autoFocus
-                      style={{ width: 60 }}
-                    />
-                    <span className="muted">×</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      className="set-input"
-                      value={editReps}
-                      onChange={(e) => setEditReps(e.target.value)}
-                      placeholder="reps"
-                      style={{ width: 52 }}
-                    />
-                    <button
-                      className="log-btn"
-                      onClick={() => saveEdit(s)}
-                      style={{ padding: '6px 12px', minHeight: 36 }}
+              <div key={s.id} onTouchStart={(e) => e.stopPropagation()}>
+                <SwipeToDelete onDelete={() => del.mutate(s.id)}>
+                  {isEditing ? (
+                    <div className="set-row logged" style={{ gap: 6, flexWrap: 'wrap' }}>
+                      <span className={`set-num ${s.is_warmup ? 'warm' : ''}`}>{s.is_warmup ? 'W' : num}</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        className="set-input"
+                        value={editWeight}
+                        onChange={(e) => setEditWeight(e.target.value)}
+                        placeholder="kg"
+                        autoFocus
+                        style={{ width: 60 }}
+                      />
+                      <span className="muted">×</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        className="set-input"
+                        value={editReps}
+                        onChange={(e) => setEditReps(e.target.value)}
+                        placeholder="reps"
+                        style={{ width: 52 }}
+                      />
+                      <button
+                        className="log-btn"
+                        onClick={() => saveEdit(s)}
+                        style={{ padding: '6px 12px', minHeight: 36 }}
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => setEditingSetId(null)}
+                        style={{ padding: '6px 10px', minHeight: 36, fontSize: '0.8rem' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className={`set-row logged ${s.is_warmup ? 'warmup' : ''}`}
+                      onClick={() => startEdit(s)}
+                      style={{ cursor: 'pointer' }}
+                      title="Tap to edit"
                     >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setEditingSetId(null)}
-                      style={{ padding: '6px 10px', minHeight: 36, fontSize: '0.8rem' }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    className={`set-row logged ${s.is_warmup ? 'warmup' : ''}`}
-                    onClick={() => startEdit(s)}
-                    style={{ cursor: 'pointer' }}
-                    title="Tap to edit"
-                  >
-                    <span className={`set-num ${s.is_warmup ? 'warm' : ''}`}>{s.is_warmup ? 'W' : num}</span>
-                    <span className="set-values">
-                      {s.weight_kg != null ? `${s.weight_kg} kg` : 'BW'} × {s.reps}
-                    </span>
-                    {res && <DeltaChips result={res} />}
-                    {s.note && <span className="muted set-note-text">{s.note}</span>}
-                    <ChevronRight size={12} color="var(--muted)" style={{ marginLeft: 'auto', flexShrink: 0 }} />
-                  </div>
-                )}
-              </SwipeToDelete>
+                      <span className={`set-num ${s.is_warmup ? 'warm' : ''}`}>{s.is_warmup ? 'W' : num}</span>
+                      <span className="set-values">
+                        {s.weight_kg != null ? `${s.weight_kg} kg` : 'BW'} × {s.reps}
+                      </span>
+                      {res && <DeltaChips result={res} />}
+                      {s.note && <span className="muted set-note-text">{s.note}</span>}
+                      <ChevronRight size={12} color="var(--muted)" style={{ marginLeft: 'auto', flexShrink: 0 }} />
+                    </div>
+                  )}
+                </SwipeToDelete>
+              </div>
             )
           })}
 
