@@ -10,6 +10,7 @@ import type { CheckinResponse, FoodLogRow, Meal, MfpStatus, StreakInfo } from '.
 import BottomSheet from '../components/BottomSheet'
 import CalorieDonut from '../components/CalorieDonut'
 import ProgressBar from '../components/ProgressBar'
+import SkeletonLoader from '../components/SkeletonLoader'
 import StreakWeekRow from '../components/StreakWeekRow'
 import MealCard from '../components/MealCard'
 import Stepper from '../components/Stepper'
@@ -551,15 +552,15 @@ export default function LogPage() {
   const [showNote, setShowNote] = useState(false)
 
   // Queries
-  const { data: foodLog } = useQuery<FoodLogRow[]>({
+  const { data: foodLog, isLoading: loadingFood } = useQuery<FoodLogRow[]>({
     queryKey: ['food-log', date],
     queryFn: () => apiGet(`/api/food/log?date=${date}`),
   })
-  const { data: checkinResp } = useQuery<CheckinResponse>({
+  const { data: checkinResp, isLoading: loadingCheckin } = useQuery<CheckinResponse>({
     queryKey: ['checkin', date],
     queryFn: () => apiGet(`/api/checkin?date=${date}`),
   })
-  const { data: streak } = useQuery<StreakInfo>({
+  const { data: streak, isLoading: loadingStreak } = useQuery<StreakInfo>({
     queryKey: ['streak'],
     queryFn: () => apiGet('/api/checkin/streak'),
   })
@@ -584,6 +585,14 @@ export default function LogPage() {
   const mfpSyncMut = useMutation({
     mutationFn: () => apiPost('/api/mfp/sync'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['food-log'] }),
+  })
+
+  const copyYesterdayMut = useMutation({
+    mutationFn: () => apiPost('/api/food/copy-day', { from_date: shiftDate(date, -1), to_date: date }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['food-log', date] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 
   // Computed
@@ -637,9 +646,12 @@ export default function LogPage() {
       </div>
 
       {/* Streak */}
-      {streak && <StreakWeekRow streak={streak} />}
+      {loadingStreak ? <SkeletonLoader height="40px" /> : streak && <StreakWeekRow streak={streak} />}
 
       {/* Check-in card */}
+      {loadingCheckin ? (
+        <div className="card" style={{ marginTop: 12 }}><SkeletonLoader height="60px" /></div>
+      ) : (
       <div className="card" style={{ marginTop: 12 }}>
         {checkin ? (
           <div onClick={() => setShowCheckin(true)} style={{ cursor: 'pointer' }}>
@@ -688,8 +700,12 @@ export default function LogPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Nutrition summary */}
+      {loadingFood ? (
+        <div className="card" style={{ marginTop: 12 }}><SkeletonLoader height="120px" /></div>
+      ) : (
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <span className="text-title">Nutrition</span>
@@ -731,6 +747,7 @@ export default function LogPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 8, marginTop: 12, overflowX: 'auto', paddingBottom: 4 }}>
@@ -763,6 +780,20 @@ export default function LogPage() {
           }
         />
       ))}
+
+      {/* Copy yesterday */}
+      <div style={{ textAlign: 'center', marginTop: 16 }}>
+        <button
+          onClick={() => copyYesterdayMut.mutate()}
+          disabled={copyYesterdayMut.isPending}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)',
+            fontSize: '0.8rem', padding: 12, minHeight: 44,
+          }}
+        >
+          {copyYesterdayMut.isPending ? 'Copying…' : "Copy yesterday's food"}
+        </button>
+      </div>
 
       {/* Bottom sheets */}
       <CheckinSheet
