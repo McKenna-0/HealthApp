@@ -1,14 +1,20 @@
 :root {
-  --bg: #0f172a;
-  --card: #1e293b;
-  --border: #334155;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
-  --green: #4ade80;
-  --red: #f87171;
-  --amber: #fbbf24;
+  --bg: #0B1120;
+  --card: #151E2F;
+  --card-elevated: #1C2740;
+  --border: #243044;
+  --text: #E8ECF1;
+  --muted: #7A8BA5;
+  --accent: #3B9EFF;
+  --green: #34D399;
+  --red: #F87171;
+  --amber: #FBBF24;
 }
+
+.text-display { font-size: 1.75rem; font-weight: 700; color: var(--text); }
+.text-title { font-size: 1.15rem; font-weight: 600; color: var(--text); }
+.text-body { font-size: 0.9rem; font-weight: 400; color: var(--text); }
+.text-caption { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
 
 * {
   box-sizing: border-box;
@@ -29,22 +35,23 @@ body {
 }
 
 h1 {
-  font-size: 1.3rem;
+  font-size: 1.75rem;
+  font-weight: 700;
   margin: 8px 4px 16px;
 }
 
 h2 {
-  font-size: 1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
   color: var(--muted);
   margin: 20px 4px 8px;
-  font-weight: 600;
 }
 
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 14px;
+  padding: 16px;
   margin-bottom: 12px;
 }
 
@@ -57,8 +64,8 @@ h2 {
 .metric-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 14px;
+  padding: 12px;
 }
 
 .metric-card .label {
@@ -86,8 +93,7 @@ h2 {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(8px);
+  background: var(--card);
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-around;
@@ -980,3 +986,28 @@ th {
 .report-md em {
   color: var(--muted);
 }
+
+/* Skeleton loader */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.15; }
+}
+
+.skeleton {
+  background: var(--border);
+  border-radius: 8px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* Elevated card (for sheets, modals) */
+.card-elevated {
+  background: var(--card-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+/* Slide-up transition */
+.slide-up-enter { transform: translateY(100%); }
+.slide-up-enter-active { transform: translateY(0); transition: transform 300ms ease-out; }
+.slide-up-exit-active { transform: translateY(100%); transition: transform 200ms ease-in; }
