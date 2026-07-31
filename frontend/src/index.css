@@ -885,35 +885,95 @@ th {
   margin-bottom: 6px;
 }
 
-/* exercise picker bottom sheet */
+/* Swipe to delete */
+.swipe-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.swipe-content {
+  position: relative;
+  z-index: 1;
+  background: var(--card);
+  transition: transform 0.2s ease;
+  touch-action: pan-y;
+}
+
+.swipe-delete-bg {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--red);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 24px;
+  color: white;
+}
+
+.swipe-deleting {
+  transition: max-height 0.2s ease, opacity 0.2s ease;
+  max-height: 0 !important;
+  opacity: 0;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+}
+
+/* Bottom sheet */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.7);
-  z-index: 20;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .sheet {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
-  width: 100%;
-  max-width: 720px;
-  max-height: 80vh;
-  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 92vh;
+  background: var(--card-elevated);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  z-index: 101;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: sheet-up 0.3s ease-out;
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.sheet-header {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px;
+  position: sticky;
+  top: 0;
+  background: var(--card-elevated);
+  z-index: 1;
 }
 
 .sheet-handle {
-  width: 40px;
+  width: 36px;
   height: 4px;
-  border-radius: 2px;
   background: var(--border);
-  margin: 4px auto 12px;
+  border-radius: 2px;
+  margin: 8px auto 0;
 }
 
 .sheet-list {
