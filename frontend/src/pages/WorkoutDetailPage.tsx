@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
 import type { Exercise, HrZone, Lap, SessionPayload, WorkoutDetail } from '../api/types'
+import SwipeToDelete from '../components/SwipeToDelete'
 
 function fmtDuration(min: number | null) {
   if (min == null) return '–'
@@ -27,6 +29,7 @@ const STRENGTH_TYPES = new Set(['strength_training', 'indoor_cardio', 'yoga', 'p
 
 export default function WorkoutDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { data, isLoading, error } = useQuery({
     queryKey: ['workout', id],
     queryFn: () => apiGet<WorkoutDetail>(`/api/workouts/${id}`),
@@ -40,13 +43,25 @@ export default function WorkoutDetailPage() {
 
   return (
     <>
-      <p style={{ margin: '8px 4px 0' }}>
-        <Link to="/workouts" className="muted" style={{ textDecoration: 'none' }}>
-          ‹ Workouts
-        </Link>
-      </p>
-      <h1>{a.name ?? a.type}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px' }}>
+        <button
+          onClick={() => navigate('/workouts')}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)',
+            padding: 8, minWidth: 44, minHeight: 44,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-display" style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {a.name ?? a.type}
+        </h1>
+      </div>
+
       {isStrength && <WorkoutActions detail={data} workoutId={id!} />}
+
       <div className="metric-grid">
         <div className="metric-card">
           <div className="label">Duration</div>
@@ -138,14 +153,14 @@ function WorkoutActions({ detail, workoutId }: { detail: WorkoutDetail; workoutI
   return (
     <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
       {a.source === 'app' && a.status === 'finished' && (
-        <Link to={`/workouts/${workoutId}/summary`} style={{ display: 'flex' }}>
-          <button className="secondary" style={{ width: '100%' }}>Summary</button>
-        </Link>
+        <button className="secondary" onClick={() => navigate(`/workouts/${workoutId}/summary`)}>
+          Summary
+        </button>
       )}
       {detail.sets.length > 0 && (
         <>
-          <button onClick={() => repeat.mutate()} disabled={repeat.isPending}>
-            ↻ Repeat
+          <button onClick={() => repeat.mutate()} disabled={repeat.isPending} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <RotateCcw size={14} /> Repeat
           </button>
           <button
             className="secondary"
@@ -193,7 +208,7 @@ function HrZonesSection({ workoutId }: { workoutId: string }) {
   if (total === 0) return null
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>Heart rate zones</h2>
+      <h2 className="text-title" style={{ marginTop: 0 }}>Heart rate zones</h2>
       {data.map((z) => {
         const secs = z.secs_in_zone ?? 0
         const pct = (secs / total) * 100
@@ -233,7 +248,7 @@ function LapsSection({ workoutId, type }: { workoutId: string; type: string | nu
   if (!data?.length) return null
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>Laps</h2>
+      <h2 className="text-title" style={{ marginTop: 0 }}>Laps</h2>
       <table>
         <thead>
           <tr>
@@ -311,31 +326,31 @@ function SetsSection({ detail, workoutId }: { detail: WorkoutDetail; workoutId: 
   return (
     <>
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>Sets · {detail.tonnage_kg.toFixed(0)} kg total</h2>
+        <h2 className="text-title" style={{ marginTop: 0 }}>Sets · {detail.tonnage_kg.toFixed(0)} kg total</h2>
         {detail.sets.length === 0 && <p className="muted">No sets logged yet.</p>}
         {detail.sets.map((s) => (
-          <div key={s.id} className="list-item" style={s.is_warmup ? { opacity: 0.6 } : undefined}>
-            <div className="main">
-              <div className="name">
-                {s.exercise_name} {s.is_warmup ? <span className="badge warm-badge">warm-up</span> : null}{' '}
-                {s.is_pr && <span className="badge pr">PR</span>}
-              </div>
-              <div className="detail">
-                {s.weight_kg != null ? `${s.weight_kg}kg × ` : ''}
-                {s.reps} reps
-                {s.e1rm != null && !s.is_warmup ? ` · e1RM ${s.e1rm}kg` : ''}
-                {s.note ? ` · ${s.note}` : ''}
+          <SwipeToDelete key={s.id} onDelete={() => removeSet.mutate(s.id)}>
+            <div className="list-item" style={s.is_warmup ? { opacity: 0.6 } : undefined}>
+              <div className="main">
+                <div className="text-body name">
+                  {s.exercise_name}{' '}
+                  {s.is_warmup ? <span className="badge warm-badge">warm-up</span> : null}{' '}
+                  {s.is_pr && <span className="badge pr">PR</span>}
+                </div>
+                <div className="text-caption detail">
+                  {s.weight_kg != null ? `${s.weight_kg}kg × ` : ''}
+                  {s.reps} reps
+                  {s.e1rm != null && !s.is_warmup ? ` · e1RM ${s.e1rm}kg` : ''}
+                  {s.note ? ` · ${s.note}` : ''}
+                </div>
               </div>
             </div>
-            <button className="del" onClick={() => removeSet.mutate(s.id)}>
-              ✕
-            </button>
-          </div>
+          </SwipeToDelete>
         ))}
       </div>
 
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>Add set</h2>
+        <h2 className="text-title" style={{ marginTop: 0 }}>Add set</h2>
         {!selected ? (
           <>
             <input
@@ -353,8 +368,8 @@ function SetsSection({ detail, workoutId }: { detail: WorkoutDetail; workoutId: 
                   onClick={() => setExerciseId(e.id)}
                 >
                   <div className="main">
-                    <div className="name">{e.name}</div>
-                    <div className="detail">
+                    <div className="text-body name">{e.name}</div>
+                    <div className="text-caption detail">
                       {e.category}
                       {e.equipment ? ` · ${e.equipment}` : ''}
                     </div>

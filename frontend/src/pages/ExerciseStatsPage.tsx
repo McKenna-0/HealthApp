@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
 import type { ExerciseSessionPoint, ExerciseStatsDetail } from '../api/types'
@@ -39,6 +40,7 @@ function setNotation(s: ExerciseSessionPoint): string {
 
 export default function ExerciseStatsPage() {
   const { exerciseId } = useParams()
+  const navigate = useNavigate()
   const [range, setRange] = useState<Range>('all')
   const [metric, setMetric] = useState<MetricKey>('best_e1rm')
 
@@ -60,12 +62,22 @@ export default function ExerciseStatsPage() {
 
   return (
     <>
-      <p style={{ margin: '8px 4px 0' }}>
-        <Link to="/workouts" className="muted" style={{ textDecoration: 'none' }}>
-          ‹ Workouts
-        </Link>
-      </p>
-      <h1>{data.exercise.name}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px' }}>
+        <button
+          onClick={() => navigate('/workouts')}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)',
+            padding: 8, minWidth: 44, minHeight: 44,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-display" style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {data.exercise.name}
+        </h1>
+      </div>
 
       <div className="tabs">
         {METRICS.map((m) => (
@@ -114,38 +126,37 @@ export default function ExerciseStatsPage() {
 
       {data.prs.best_e1rm && (
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>Personal records</h2>
+          <h2 className="text-title" style={{ marginTop: 0 }}>Personal records</h2>
           <p style={{ margin: '0 0 6px' }}>
             Best e1RM: <strong>{data.prs.best_e1rm.e1rm} kg</strong> ({data.prs.best_e1rm.weight_kg}kg ×{' '}
             {data.prs.best_e1rm.reps} on {data.prs.best_e1rm.date})
           </p>
           {data.prs.rep_prs.length > 0 && (
-            <div className="muted" style={{ fontSize: '0.8rem' }}>
+            <div className="text-caption" style={{ color: 'var(--muted)' }}>
               {data.prs.rep_prs.map((p) => `${p.reps}RM ${p.weight_kg}kg`).join(' · ')}
             </div>
           )}
         </div>
       )}
 
-      <h2>History ({sessions.length} sessions)</h2>
+      <h2 className="text-title">History ({sessions.length} sessions)</h2>
       <div className="card">
         {[...sessions].reverse().map((s) => (
-          <Link
+          <div
             key={s.activity_id}
-            to={`/workouts/${s.activity_id}`}
-            style={{ textDecoration: 'none', color: 'inherit' }}
+            className="list-item"
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate(`/workouts/${s.activity_id}`)}
           >
-            <div className="list-item">
-              <div className="main">
-                <div className="name">{setNotation(s)}</div>
-                <div className="detail">
-                  {s.date} · {s.num_sets} sets · {s.total_reps} reps · max {s.max_reps}
-                  {s.best_e1rm != null ? ` · e1RM ${s.best_e1rm}kg` : ''}
-                </div>
+            <div className="main">
+              <div className="text-body name">{setNotation(s)}</div>
+              <div className="text-caption detail">
+                {s.date} · {s.num_sets} sets · {s.total_reps} reps · max {s.max_reps}
+                {s.best_e1rm != null ? ` · e1RM ${s.best_e1rm}kg` : ''}
               </div>
-              <span className="muted">›</span>
             </div>
-          </Link>
+            <span className="muted">›</span>
+          </div>
         ))}
         {sessions.length === 0 && <p className="muted">No sessions in this range.</p>}
       </div>

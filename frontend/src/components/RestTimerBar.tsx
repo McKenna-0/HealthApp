@@ -29,6 +29,7 @@ export default function RestTimerBar() {
   const [remaining, setRemaining] = useState<number | null>(null)
   const [showConfig, setShowConfig] = useState(false)
   const [configured, setConfigured] = useState(configuredRestSeconds)
+  const [customInput, setCustomInput] = useState('')
 
   useEffect(() => {
     const tick = () => {
@@ -56,7 +57,15 @@ export default function RestTimerBar() {
     localStorage.setItem(SECONDS_KEY, String(secs))
     setConfigured(secs)
     setShowConfig(false)
+    setCustomInput('')
     if (secs === 0) clearRestTimer()
+  }
+
+  const handleCustomBlur = () => {
+    const val = parseInt(customInput)
+    if (val > 0 && val <= 600) {
+      pick(val)
+    }
   }
 
   return (
@@ -72,6 +81,25 @@ export default function RestTimerBar() {
               {o === 0 ? 'Off' : fmt(o)}
             </button>
           ))}
+          <input
+            type="number"
+            placeholder="Custom"
+            min={0}
+            max={600}
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            onBlur={handleCustomBlur}
+            style={{
+              width: 72,
+              textAlign: 'center',
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              color: 'var(--text)',
+              padding: '8px',
+              fontSize: '1rem',
+            }}
+          />
         </div>
       )}
       <div className="rest-bar-inner">

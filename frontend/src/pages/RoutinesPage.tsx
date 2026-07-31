@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, ChevronDown, ChevronUp, Play, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
 import type { Exercise, Routine, SessionPayload } from '../api/types'
 import ExercisePicker from '../components/ExercisePicker'
+import SwipeToDelete from '../components/SwipeToDelete'
 
 export default function RoutinesPage() {
   const qc = useQueryClient()
@@ -38,15 +40,27 @@ export default function RoutinesPage() {
 
   return (
     <>
-      <p style={{ margin: '8px 4px 0' }}>
-        <Link to="/workouts" className="muted" style={{ textDecoration: 'none' }}>
-          ‹ Workouts
-        </Link>
-      </p>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>Routines</h1>
-        <button className="fixed" onClick={() => setEditing('new')}>+ New</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px' }}>
+        <button
+          onClick={() => navigate('/workouts')}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)',
+            padding: 8, minWidth: 44, minHeight: 44,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-display" style={{ margin: 0, flex: 1 }}>Routines</h1>
+        <button
+          onClick={() => setEditing('new')}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44 }}
+        >
+          <Plus size={16} /> New
+        </button>
       </div>
+
       {isLoading && <p className="muted">Loading…</p>}
       {data?.length === 0 && (
         <p className="muted">
@@ -54,26 +68,36 @@ export default function RoutinesPage() {
         </p>
       )}
       {(data ?? []).map((r) => (
-        <div key={r.id} className="card">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <div>
-              <strong>{r.name}</strong>
-              <div className="muted" style={{ fontSize: '0.78rem' }}>
-                {r.exercises.map((e) => e.name).join(' · ') || 'No exercises'}
+        <div key={r.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
+          <div style={{ padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-body" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.name}
+                </div>
+                <div className="text-caption" style={{ color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.exercises.map((e) => e.name).join(' · ') || 'No exercises'}
+                </div>
+                {r.last_used_at && (
+                  <div className="text-caption" style={{ color: 'var(--muted)', marginTop: 2 }}>
+                    Last used {r.last_used_at.slice(0, 10)}
+                  </div>
+                )}
+              </div>
+              <div className="row fixed" style={{ gap: 8, flexShrink: 0 }}>
+                <button className="secondary fixed" onClick={() => setEditing(r)} style={{ minHeight: 44 }}>
+                  Edit
+                </button>
+                <button
+                  onClick={() => start.mutate(r.id)}
+                  disabled={start.isPending}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44 }}
+                >
+                  <Play size={14} fill="currentColor" /> Start
+                </button>
               </div>
             </div>
-            <div className="row fixed" style={{ gap: 6 }}>
-              <button className="secondary fixed" onClick={() => setEditing(r)}>Edit</button>
-              <button className="fixed" onClick={() => start.mutate(r.id)} disabled={start.isPending}>
-                Start
-              </button>
-            </div>
           </div>
-          {r.last_used_at && (
-            <div className="muted" style={{ fontSize: '0.72rem', marginTop: 4 }}>
-              Last used {r.last_used_at.slice(0, 10)}
-            </div>
-          )}
         </div>
       ))}
       {start.isError && (
@@ -120,7 +144,7 @@ function RoutineEditor({ routine, onDone }: { routine: Routine | null; onDone: (
 
   return (
     <>
-      <h1>{routine ? 'Edit routine' : 'New routine'}</h1>
+      <h1 className="text-display">{routine ? 'Edit routine' : 'New routine'}</h1>
       <div className="card">
         <input
           placeholder="Routine name (e.g. Push, Pull, Legs)"
@@ -129,27 +153,45 @@ function RoutineEditor({ routine, onDone }: { routine: Routine | null; onDone: (
           style={{ width: '100%', marginBottom: 8 }}
         />
         {exercises.map((e, i) => (
-          <div key={e.exercise_id} className="list-item">
-            <div className="main">
-              <div className="name">{e.name}</div>
-              <div className="detail">{e.target_sets} sets</div>
+          <SwipeToDelete
+            key={e.exercise_id}
+            onDelete={() => setExercises((p) => p.filter((_, xi) => xi !== i))}
+          >
+            <div className="list-item">
+              <div className="main">
+                <div className="text-body name">{e.name}</div>
+                <div className="text-caption detail">{e.target_sets} sets</div>
+              </div>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={e.target_sets}
+                min={1}
+                max={20}
+                style={{ width: 56, padding: 6, fontSize: '1rem' }}
+                onChange={(ev) => {
+                  const v = Math.max(1, Math.min(20, parseInt(ev.target.value) || 1))
+                  setExercises((p) => p.map((x, xi) => (xi === i ? { ...x, target_sets: v } : x)))
+                }}
+              />
+              <button
+                className="secondary fixed"
+                style={{ padding: '6px 10px', minWidth: 44, minHeight: 44 }}
+                onClick={() => move(i, -1)}
+                aria-label="Move up"
+              >
+                <ChevronUp size={16} />
+              </button>
+              <button
+                className="secondary fixed"
+                style={{ padding: '6px 10px', minWidth: 44, minHeight: 44 }}
+                onClick={() => move(i, 1)}
+                aria-label="Move down"
+              >
+                <ChevronDown size={16} />
+              </button>
             </div>
-            <input
-              type="number"
-              inputMode="numeric"
-              value={e.target_sets}
-              min={1}
-              max={20}
-              style={{ width: 56, padding: 6 }}
-              onChange={(ev) => {
-                const v = Math.max(1, Math.min(20, parseInt(ev.target.value) || 1))
-                setExercises((p) => p.map((x, xi) => (xi === i ? { ...x, target_sets: v } : x)))
-              }}
-            />
-            <button className="secondary fixed" style={{ padding: '6px 10px' }} onClick={() => move(i, -1)}>↑</button>
-            <button className="secondary fixed" style={{ padding: '6px 10px' }} onClick={() => move(i, 1)}>↓</button>
-            <button className="del" onClick={() => setExercises((p) => p.filter((_, xi) => xi !== i))}>✕</button>
-          </div>
+          </SwipeToDelete>
         ))}
         <button className="secondary" style={{ width: '100%', marginTop: 8 }} onClick={() => setShowPicker(true)}>
           + Add exercise

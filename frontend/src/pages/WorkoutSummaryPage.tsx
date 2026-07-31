@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Trophy, Watch } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
 import type { Workout, WorkoutSummary } from '../api/types'
 import MuscleBodyMap from '../components/MuscleBodyMap'
@@ -13,6 +14,7 @@ function fmtDuration(min: number | null) {
 
 export default function WorkoutSummaryPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({
     queryKey: ['workout-summary', id],
@@ -30,14 +32,22 @@ export default function WorkoutSummaryPage() {
 
   return (
     <>
-      <p style={{ margin: '8px 4px 0' }}>
-        <Link to="/workouts" className="muted" style={{ textDecoration: 'none' }}>
-          ‹ Workouts
-        </Link>
-      </p>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1 style={{ marginBottom: 4 }}>{data.name ?? 'Workout'}</h1>
-        <span className="muted fixed">{data.date}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px' }}>
+        <button
+          onClick={() => navigate('/workouts')}
+          style={{
+            background: 'none', border: 'none', color: 'var(--muted)',
+            padding: 8, minWidth: 44, minHeight: 44,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <div style={{ flex: 1 }}>
+          <h1 className="text-display" style={{ margin: 0 }}>{data.name ?? 'Workout'}</h1>
+          <span className="text-caption" style={{ color: 'var(--muted)' }}>{data.date}</span>
+        </div>
       </div>
 
       <div className="card" style={{ padding: '16px 8px 4px' }}>
@@ -81,12 +91,15 @@ export default function WorkoutSummaryPage() {
 
       {data.prs.length > 0 && (
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>🏆 Personal records</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Trophy size={18} color="var(--amber)" />
+            <h2 className="text-title" style={{ margin: 0 }}>Personal records</h2>
+          </div>
           {data.prs.map((p) => (
             <div key={p.exercise_id} className="list-item">
               <div className="main">
-                <div className="name">{p.exercise_name}</div>
-                <div className="detail">
+                <div className="text-body name">{p.exercise_name}</div>
+                <div className="text-caption detail">
                   {p.weight_kg != null ? `${p.weight_kg} kg × ` : ''}
                   {p.reps}
                   {p.e1rm != null ? ` · e1RM ${p.e1rm} kg` : ''}
@@ -100,9 +113,13 @@ export default function WorkoutSummaryPage() {
 
       <WatchLinkCard summary={data} workoutId={id!} onChange={invalidate} />
 
-      <Link to={`/workouts/${id}`}>
-        <button className="secondary" style={{ width: '100%' }}>View full workout detail</button>
-      </Link>
+      <button
+        className="secondary"
+        style={{ width: '100%' }}
+        onClick={() => navigate(`/workouts/${id}`)}
+      >
+        View full workout detail
+      </button>
     </>
   )
 }
@@ -138,8 +155,11 @@ function WatchLinkCard({
 
   return (
     <div className="card">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0 }}>Watch data</h2>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Watch size={16} color="var(--muted)" />
+          <h2 className="text-title" style={{ margin: 0 }}>Watch data</h2>
+        </div>
         {summary.linked_activity_id != null ? (
           <button className="secondary fixed" onClick={() => unlink.mutate()}>Unlink</button>
         ) : (
@@ -147,11 +167,11 @@ function WatchLinkCard({
         )}
       </div>
       {summary.linked_activity_id != null ? (
-        <p className="muted" style={{ marginBottom: 0 }}>
-          ⌚ Heart rate, calories and duration are from your watch.
+        <p className="text-caption" style={{ color: 'var(--muted)', marginBottom: 0 }}>
+          Heart rate, calories and duration are from your watch.
         </p>
       ) : (
-        <p className="muted" style={{ marginBottom: 0 }}>
+        <p className="text-caption" style={{ color: 'var(--muted)', marginBottom: 0 }}>
           No watch activity linked. It links automatically when a matching strength activity syncs.
         </p>
       )}
@@ -162,8 +182,8 @@ function WatchLinkCard({
             .map((w) => (
               <div key={w.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => link.mutate(w.id)}>
                 <div className="main">
-                  <div className="name">{w.name ?? w.type}</div>
-                  <div className="detail">
+                  <div className="text-body name">{w.name ?? w.type}</div>
+                  <div className="text-caption detail">
                     {w.start_ts?.slice(11, 16)} · {fmtDuration(w.duration_min)}
                     {w.avg_hr ? ` · ${w.avg_hr} bpm` : ''}
                   </div>

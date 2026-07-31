@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Activity, Bike, ChevronRight, Dumbbell, Footprints, PersonStanding, Waves } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -11,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { apiGet, apiPost } from '../api/client'
+import { apiDelete, apiGet, apiPost } from '../api/client'
 import type {
   CardioAnalytics,
   Exercise,
@@ -23,6 +24,7 @@ import type {
 } from '../api/types'
 import ChartCard from '../components/ChartCard'
 import MuscleBodyMap from '../components/MuscleBodyMap'
+import SwipeToDelete from '../components/SwipeToDelete'
 
 const axisStyle = { fontSize: 10, fill: '#94a3b8' }
 const tooltipStyle = {
@@ -30,13 +32,16 @@ const tooltipStyle = {
   labelStyle: { color: '#94a3b8' },
 }
 
-const TYPE_ICONS: Record<string, string> = {
-  running: '🏃',
-  cycling: '🚴',
-  strength_training: '🏋️',
-  swimming: '🏊',
-  walking: '🚶',
-  hiking: '🥾',
+function WorkoutTypeIcon({ type, size = 20 }: { type: string | null; size?: number }) {
+  switch (type) {
+    case 'running': return <PersonStanding size={size} color="var(--accent)" />
+    case 'cycling': return <Bike size={size} color="var(--accent)" />
+    case 'swimming': return <Waves size={size} color="var(--accent)" />
+    case 'strength_training': return <Dumbbell size={size} color="var(--accent)" />
+    case 'walking': return <Footprints size={size} color="var(--muted)" />
+    case 'hiking': return <Footprints size={size} color="var(--muted)" />
+    default: return <Activity size={size} color="var(--muted)" />
+  }
 }
 
 function fmtDuration(min: number | null) {
@@ -49,7 +54,7 @@ export default function WorkoutsPage() {
   const [tab, setTab] = useState<'history' | 'strength' | 'stats' | 'cardio'>('history')
   return (
     <>
-      <h1>Workouts</h1>
+      <h1 className="text-display" style={{ margin: '0 0 12px' }}>Workouts</h1>
       <ActiveBanner />
       <div className="tabs">
         {(['history', 'strength', 'stats', 'cardio'] as const).map((t) => (
@@ -97,13 +102,13 @@ function StatsTab() {
             >
               <div className="list-item">
                 <div className="main">
-                  <div className="name">{e.name}</div>
-                  <div className="detail">
+                  <div className="text-body name">{e.name}</div>
+                  <div className="text-caption detail">
                     {e.total_workouts} workouts
                     {e.best_e1rm != null ? ` · best e1RM ${e.best_e1rm}kg` : ''} · last {e.last_date}
                   </div>
                 </div>
-                <span className="muted">›</span>
+                <ChevronRight size={16} color="var(--muted)" />
               </div>
             </Link>
           ))}
@@ -122,15 +127,15 @@ function ActiveBanner() {
   const a = data.active.activity
   return (
     <Link to="/workouts/active" style={{ textDecoration: 'none', color: 'inherit' }}>
-      <div className="card active-banner">
+      <div className="card active-banner" style={{ marginBottom: 12 }}>
         <span className="pulse-dot" />
         <div className="main">
-          <strong>{a.name}</strong>
-          <div className="muted" style={{ fontSize: '0.78rem' }}>
+          <div className="text-body" style={{ fontWeight: 600 }}>{a.name}</div>
+          <div className="text-caption" style={{ color: 'var(--muted)' }}>
             Workout in progress — tap to resume
           </div>
         </div>
-        <span className="muted">›</span>
+        <ChevronRight size={16} color="var(--muted)" />
       </div>
     </Link>
   )
@@ -147,22 +152,41 @@ function StartRow() {
     },
   })
   return (
-    <div className="row" style={{ marginBottom: 12 }}>
-      <button onClick={() => start.mutate()} disabled={start.isPending}>
-        ▶ Start workout
+    <div className="row" style={{ marginBottom: 12, gap: 8 }}>
+      <button
+        onClick={() => start.mutate()}
+        disabled={start.isPending}
+        style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          borderRadius: 14,
+        }}
+      >
+        <Dumbbell size={18} />
+        Start workout
       </button>
       <Link to="/workouts/routines" style={{ display: 'flex' }}>
-        <button className="secondary" style={{ width: '100%' }}>Routines</button>
+        <button className="secondary" style={{ whiteSpace: 'nowrap' }}>Routines</button>
       </Link>
     </div>
   )
 }
 
 function HistoryTab() {
+  const qc = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ['workouts'],
     queryFn: () => apiGet<Workout[]>('/api/workouts?limit=60'),
   })
+
+  const deleteWorkout = useMutation({
+    mutationFn: (id: number) => apiDelete(`/api/workouts/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workouts'] }),
+  })
+
   if (isLoading) return <p className="muted">Loading…</p>
   return (
     <>
@@ -170,26 +194,32 @@ function HistoryTab() {
       {!data?.length ? (
         <p className="muted">No workouts yet. Start one above or sync your watch.</p>
       ) : (
-        <div className="card">
+        <div className="card" style={{ overflow: 'hidden' }}>
           {data.map((w) => (
-            <Link key={w.id} to={`/workouts/${w.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="list-item">
-                <span style={{ fontSize: '1.3rem' }}>{TYPE_ICONS[w.type ?? ''] ?? '💪'}</span>
-                <div className="main">
-                  <div className="name">
-                    {w.name ?? w.type}
-                    {w.source === 'app' && <span className="badge app-badge">logged</span>}
+            <SwipeToDelete
+              key={w.id}
+              onDelete={() => deleteWorkout.mutate(w.id)}
+              confirm
+            >
+              <Link to={`/workouts/${w.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div className="list-item">
+                  <WorkoutTypeIcon type={w.type} size={22} />
+                  <div className="main">
+                    <div className="text-body name" style={{ fontWeight: 500 }}>
+                      {w.name ?? w.type}
+                      {w.source === 'app' && <span className="badge app-badge" style={{ marginLeft: 6 }}>logged</span>}
+                    </div>
+                    <div className="text-caption detail">
+                      {w.date} · {fmtDuration(w.duration_min)}
+                      {w.distance_km ? ` · ${w.distance_km.toFixed(1)} km` : ''}
+                      {w.total_sets ? ` · ${w.total_sets} sets` : ''}
+                      {w.avg_hr ? ` · ${w.avg_hr} bpm` : ''}
+                    </div>
                   </div>
-                  <div className="detail">
-                    {w.date} · {fmtDuration(w.duration_min)}
-                    {w.distance_km ? ` · ${w.distance_km.toFixed(1)} km` : ''}
-                    {w.total_sets ? ` · ${w.total_sets} sets` : ''}
-                    {w.avg_hr ? ` · ${w.avg_hr} bpm` : ''}
-                  </div>
+                  <ChevronRight size={16} color="var(--muted)" />
                 </div>
-                <span className="muted">›</span>
-              </div>
-            </Link>
+              </Link>
+            </SwipeToDelete>
           ))}
         </div>
       )}
@@ -222,7 +252,7 @@ function StrengthTab() {
   return (
     <>
       <div className="card" style={{ padding: '14px 8px 4px' }}>
-        <h2 style={{ margin: '0 8px 4px' }}>Muscles worked — last 7 days</h2>
+        <h2 style={{ margin: '0 8px 4px' }} className="text-title">Muscles worked — last 7 days</h2>
         <MuscleBodyMap intensities={intensities} height={230} />
         {Object.keys(intensities).length === 0 && (
           <p className="muted" style={{ textAlign: 'center' }}>No sets logged this week yet.</p>
@@ -250,7 +280,7 @@ function StrengthTab() {
       </ChartCard>
 
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>Exercise progression</h2>
+        <h2 style={{ marginTop: 0 }} className="text-title">Exercise progression</h2>
         <select
           value={exerciseId}
           onChange={(e) => setExerciseId(e.target.value === '' ? '' : Number(e.target.value))}
@@ -297,6 +327,16 @@ function CardioTab() {
     queryFn: () => apiGet<CardioAnalytics>(`/api/workouts/analytics/cardio?type=${type}`),
   })
 
+  function CardioTypeIcon({ t }: { t: string }) {
+    switch (t) {
+      case 'running': return <PersonStanding size={14} />
+      case 'cycling': return <Bike size={14} />
+      case 'swimming': return <Waves size={14} />
+      case 'walking': return <Footprints size={14} />
+      default: return <Activity size={14} />
+    }
+  }
+
   return (
     <>
       <div className="tabs">
@@ -304,7 +344,10 @@ function CardioTab() {
           .filter((t) => t.type !== 'strength_training')
           .map((t) => (
             <button key={t.type} className={`chip ${type === t.type ? 'active' : ''}`} onClick={() => setType(t.type)}>
-              {TYPE_ICONS[t.type] ?? ''} {t.type.replace(/_/g, ' ')}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CardioTypeIcon t={t.type} />
+                {t.type.replace(/_/g, ' ')}
+              </span>
             </button>
           ))}
       </div>
