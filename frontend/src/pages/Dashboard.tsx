@@ -1,209 +1,285 @@
-import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { CorrelationsResponse, Readiness } from '../api/types'
-import { InsightCard } from './InsightsPage'
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+  Heart, Moon, Footprints, Flame, Activity, Battery,
+  ChevronRight,
+} from 'lucide-react'
+import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
-import type { Dashboard as DashboardData } from '../api/types'
-import ChartCard from '../components/ChartCard'
-import SyncStatusCard from '../components/SyncStatusCard'
+import type { Dashboard as DashboardData, CorrelationsResponse, Workout } from '../api/types'
 import MetricCard from '../components/MetricCard'
-import RangePicker from '../components/RangePicker'
+import MetricDrillDown from '../components/MetricDrillDown'
+import SyncStatusCard from '../components/SyncStatusCard'
+import SkeletonLoader from '../components/SkeletonLoader'
 
-const axisStyle = { fontSize: 10, fill: '#94a3b8' }
-const tooltipStyle = {
-  contentStyle: { background: '#1e293b', border: '1px solid #334155', borderRadius: 8 },
-  labelStyle: { color: '#94a3b8' },
+const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
+
+const METRIC_DEFS: Record<string, { label: string; icon: typeof Heart; unit?: string }> = {
+  hrv:          { label: 'HRV',        icon: Activity,   unit: 'ms' },
+  sleep_score:  { label: 'Sleep',      icon: Moon },
+  calories_out: { label: 'Cal Burned', icon: Flame,      unit: 'kcal' },
+  steps:        { label: 'Steps',      icon: Footprints },
+  resting_hr:   { label: 'Rest HR',    icon: Heart,      unit: 'bpm' },
+  body_battery: { label: 'Battery',    icon: Battery },
 }
 
-function shortDate(d: string) {
-  return d.slice(5)
+// Maps metric key -> field on DashboardDay
+function getMetricValue(day: DashboardData['series'][0] | undefined, key: string): number | null {
+  if (!day) return null
+  const map: Record<string, number | null | undefined> = {
+    hrv:          day.hrv,
+    sleep_score:  day.sleep_score,
+    calories_out: day.calories_out,
+    steps:        day.steps,
+    resting_hr:   day.resting_hr,
+    // DashboardDay uses body_battery_high
+    body_battery: day.body_battery_high,
+  }
+  return map[key] ?? null
+}
+
+// Maps metric key -> field on averages_7d
+function getAvgValue(avg: DashboardData['averages_7d'] | undefined, key: string): number | null {
+  if (!avg) return null
+  const map: Record<string, number | null | undefined> = {
+    hrv:          avg.hrv,
+    sleep_score:  avg.sleep_score,
+    steps:        avg.steps,
+    resting_hr:   avg.resting_hr,
+    // calories_out and body_battery not in averages_7d
+    calories_out: null,
+    body_battery: null,
+  }
+  return map[key] ?? null
 }
 
 const READINESS_COLORS: Record<string, string> = {
-  green: '#4ade80',
-  amber: '#fbbf24',
-  red: '#f87171',
-  building_baseline: '#38bdf8',
-  no_data: '#64748b',
-}
-
-function ReadinessCard({ readiness }: { readiness: Readiness | undefined }) {
-  const [expanded, setExpanded] = useState(false)
-  if (!readiness) return null
-  const color = READINESS_COLORS[readiness.status] ?? '#64748b'
-  return (
-    <div className="card" onClick={() => setExpanded((e) => !e)} style={{ cursor: 'pointer' }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="row" style={{ flex: 1, gap: 10 }}>
-          <span
-            className="fixed"
-            style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }}
-          />
-          <strong>{readiness.label}</strong>
-        </div>
-        {readiness.score_pct != null && (
-          <span className="muted fixed">{readiness.score_pct}%</span>
-        )}
-      </div>
-      {expanded && readiness.components.length > 0 && (
-        <table style={{ marginTop: 8 }}>
-          <tbody>
-            {readiness.components.map((c) => (
-              <tr key={c.key}>
-                <td className="muted">{c.label}</td>
-                <td>
-                  {c.value}
-                  {c.baseline != null ? ` (base ${c.baseline})` : ''}
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  {'●'.repeat(c.points)}
-                  <span style={{ opacity: 0.25 }}>{'●'.repeat(c.max_points - c.points)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  )
-}
-
-function InsightsTeaser() {
-  const { data } = useQuery({
-    queryKey: ['correlations'],
-    queryFn: () => apiGet<CorrelationsResponse>('/api/analytics/correlations?days=90'),
-  })
-  const established = (data?.insights ?? [])
-    .filter((i) => i.status === 'ok' && i.strength && i.strength !== 'none')
-    .slice(0, 2)
-  if (established.length === 0) return null
-  return (
-    <>
-      <h2>Insights</h2>
-      {established.map((i) => (
-        <InsightCard key={i.id} insight={i} />
-      ))}
-      <p style={{ margin: '0 4px 4px', textAlign: 'right' }}>
-        <Link to="/insights" className="muted" style={{ fontSize: '0.85rem' }}>
-          More insights ›
-        </Link>
-      </p>
-    </>
-  )
+  green:              'var(--green)',
+  amber:              'var(--amber)',
+  red:                'var(--red)',
+  building_baseline:  'var(--accent)',
+  no_data:            'var(--muted)',
 }
 
 export default function Dashboard() {
-  const [days, setDays] = useState(30)
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['dashboard', days],
-    queryFn: () => apiGet<DashboardData>(`/api/analytics/dashboard?days=${days}`),
+  const [drillDown, setDrillDown] = useState<string | null>(null)
+  const [metricsConfig] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('dashboard-metrics-config')
+      return saved ? JSON.parse(saved) : DEFAULT_METRICS
+    } catch {
+      return DEFAULT_METRICS
+    }
   })
 
-  if (isLoading) return <p className="muted">Loading…</p>
-  if (error || !data) return <p className="error-text">Failed to load: {String(error)}</p>
+  const { data: dash, isLoading } = useQuery<DashboardData>({
+    queryKey: ['dashboard', 30],
+    queryFn: () => apiGet('/api/analytics/dashboard?days=30'),
+  })
 
-  const today = data.series[data.series.length - 1]
-  const avg = data.averages_7d
+  const { data: workouts } = useQuery<Workout[]>({
+    queryKey: ['workouts'],
+    queryFn: () => apiGet('/api/workouts/'),
+  })
+
+  const { data: correlations } = useQuery<CorrelationsResponse>({
+    queryKey: ['correlations'],
+    queryFn: () => apiGet('/api/analytics/correlations?days=90'),
+  })
+
+  // series is sorted oldest-first; last entry = today
+  const today = dash?.series?.[dash.series.length - 1]
+  const avg7 = dash?.averages_7d
+  const recentWorkouts = workouts?.slice(0, 3)
 
   return (
-    <>
-      <h1>Today</h1>
+    <div style={{ padding: '16px' }}>
       <SyncStatusCard />
-      <ReadinessCard readiness={data.readiness} />
-      <div className="metric-grid">
-        <MetricCard label="Steps" value={today?.steps?.toLocaleString()} sub={avg.steps ? `7d ${Math.round(avg.steps).toLocaleString()}` : undefined} />
-        <MetricCard label="Resting HR" value={today?.resting_hr} sub={avg.resting_hr ? `7d ${avg.resting_hr}` : undefined} />
-        <MetricCard label="HRV" value={today?.hrv} sub={avg.hrv ? `7d ${avg.hrv}` : undefined} />
-        <MetricCard label="Sleep score" value={today?.sleep_score} sub={avg.sleep_score ? `7d ${avg.sleep_score}` : undefined} />
-        <MetricCard label="Body battery" value={today?.body_battery_high} sub="high" />
-        <MetricCard
-          label="Kcal in / out"
-          value={today?.calories_in != null ? `${today.calories_in}` : '–'}
-          sub={today?.calories_out != null ? `out ${today.calories_out}` : undefined}
-        />
+
+      {/* Metrics Row */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        overflowX: 'auto',
+        paddingBottom: 8,
+        WebkitOverflowScrolling: 'touch',
+        scrollSnapType: 'x mandatory',
+      }}>
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} style={{ minWidth: 120, flex: '0 0 auto' }}>
+              <SkeletonLoader height="90px" borderRadius="14px" />
+            </div>
+          ))
+        ) : (
+          metricsConfig.map(key => {
+            const def = METRIC_DEFS[key]
+            if (!def) return null
+            const val = getMetricValue(today, key)
+            const avgVal = getAvgValue(avg7, key)
+            const delta = val != null && avgVal != null ? +(val - avgVal).toFixed(1) : undefined
+            const Icon = def.icon
+            return (
+              <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
+                <MetricCard
+                  icon={<Icon size={18} />}
+                  label={def.label}
+                  value={val != null ? val : null}
+                  delta={delta != null ? { value: delta, suffix: def.unit ? ` ${def.unit}` : '' } : undefined}
+                  onClick={() => setDrillDown(key)}
+                />
+              </div>
+            )
+          })
+        )}
       </div>
 
-      <InsightsTeaser />
+      {/* Recent Activities */}
+      {recentWorkouts && recentWorkouts.length > 0 && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span className="text-title">Recent Activities</span>
+            <Link to="/workouts" style={{ color: 'var(--accent)', fontSize: '0.8rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              See all <ChevronRight size={14} />
+            </Link>
+          </div>
+          {recentWorkouts.map(w => (
+            <Link
+              key={w.id}
+              to={`/workouts/${w.id}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}
+            >
+              <Activity size={18} color="var(--muted)" />
+              <div style={{ flex: 1 }}>
+                <div className="text-body">{w.name || w.type}</div>
+                <div className="text-caption">{w.date}{w.duration_min ? ` · ${w.duration_min}min` : ''}</div>
+              </div>
+              <ChevronRight size={16} color="var(--muted)" />
+            </Link>
+          ))}
+        </div>
+      )}
 
-      <h2>Trends</h2>
-      <RangePicker value={days} onChange={setDays} />
+      {/* Today's Log Summary */}
+      <Link to="/log" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span className="text-title">Today's Log</span>
+            <ChevronRight size={16} color="var(--muted)" />
+          </div>
+          {today ? (
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div>
+                <div className="text-caption">Calories In</div>
+                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_in ?? '–'}</div>
+              </div>
+              <div>
+                <div className="text-caption">Burned</div>
+                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_out ?? '–'}</div>
+              </div>
+              <div>
+                <div className="text-caption">Balance</div>
+                <div className="text-body" style={{
+                  fontWeight: 600,
+                  color: today.balance != null ? (today.balance > 0 ? 'var(--red)' : 'var(--green)') : undefined,
+                }}>
+                  {today.balance != null ? `${today.balance > 0 ? '+' : ''}${today.balance}` : '–'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            isLoading
+              ? <SkeletonLoader height="32px" borderRadius="8px" />
+              : <div className="text-caption">No data yet. Check in to start tracking.</div>
+          )}
+        </div>
+      </Link>
 
-      <ChartCard title="HRV">
-        <LineChart data={data.series}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={30} domain={['auto', 'auto']} />
-          <Tooltip {...tooltipStyle} />
-          <Line dataKey="hrv" stroke="#38bdf8" dot={false} strokeWidth={2} />
-        </LineChart>
-      </ChartCard>
+      {/* Trends sparklines */}
+      {dash && dash.series.length > 7 && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="text-title" style={{ marginBottom: 12 }}>Trends</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {metricsConfig.slice(0, 4).map(key => {
+              const def = METRIC_DEFS[key]
+              if (!def) return null
+              const chartData = dash.series
+                .map(d => ({ v: getMetricValue(d, key) }))
+                .filter(d => d.v != null)
+              if (chartData.length < 3) return null
+              return (
+                <div key={key} onClick={() => setDrillDown(key)} style={{ cursor: 'pointer' }}>
+                  <div className="text-caption" style={{ marginBottom: 4 }}>{def.label}</div>
+                  <ResponsiveContainer width="100%" height={50}>
+                    <LineChart data={chartData}>
+                      <YAxis domain={['dataMin', 'dataMax']} hide />
+                      <Line type="monotone" dataKey="v" stroke="var(--accent)" strokeWidth={1.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
-      <ChartCard title="Resting HR">
-        <LineChart data={data.series}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={30} domain={['auto', 'auto']} />
-          <Tooltip {...tooltipStyle} />
-          <Line dataKey="resting_hr" stroke="#f87171" dot={false} strokeWidth={2} />
-        </LineChart>
-      </ChartCard>
-
-      <ChartCard title="Sleep score">
-        <LineChart data={data.series}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={30} domain={[0, 100]} />
-          <Tooltip {...tooltipStyle} />
-          <Line dataKey="sleep_score" stroke="#a78bfa" dot={false} strokeWidth={2} />
-        </LineChart>
-      </ChartCard>
-
-      <ChartCard title="Steps">
-        <BarChart data={data.series}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={40} />
-          <Tooltip {...tooltipStyle} />
-          <Bar dataKey="steps" fill="#38bdf8" />
-        </BarChart>
-      </ChartCard>
-
-      <ChartCard title="Weight trend">
-        <LineChart data={data.series.filter((d) => d.weight_trend != null)}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={40} domain={['auto', 'auto']} />
-          <Tooltip {...tooltipStyle} />
-          <Line dataKey="weight" stroke="#64748b" dot={{ r: 2 }} strokeWidth={0} name="daily" />
-          <Line dataKey="weight_trend" stroke="#4ade80" dot={false} strokeWidth={2} name="trend" />
-        </LineChart>
-      </ChartCard>
-
-      <ChartCard title="Energy balance (kcal)">
-        <BarChart data={data.series}>
-          <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-          <XAxis dataKey="date" tickFormatter={shortDate} tick={axisStyle} minTickGap={30} />
-          <YAxis tick={axisStyle} width={40} />
-          <Tooltip {...tooltipStyle} />
-          <Bar dataKey="balance">
-            {data.series.map((d) => (
-              <Cell key={d.date} fill={(d.balance ?? 0) > 0 ? '#f87171' : '#4ade80'} />
+      {/* Insights */}
+      {correlations?.insights && correlations.insights.filter(i => i.status === 'ok').length > 0 && (
+        <Link to="/insights" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="card" style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span className="text-title">Insights</span>
+              <ChevronRight size={16} color="var(--muted)" />
+            </div>
+            {correlations.insights.filter(i => i.status === 'ok').slice(0, 2).map((ins, i) => (
+              <div key={ins.id} style={{ padding: '8px 0', borderTop: i > 0 ? '1px solid var(--border)' : undefined }}>
+                <div className="text-body">{ins.title}</div>
+                <div className="text-caption">{ins.summary_line}</div>
+              </div>
             ))}
-          </Bar>
-        </BarChart>
-      </ChartCard>
-    </>
+          </div>
+        </Link>
+      )}
+
+      {/* Readiness */}
+      {dash?.readiness && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="text-title" style={{ marginBottom: 8 }}>Readiness</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: READINESS_COLORS[dash.readiness.status] ?? 'var(--muted)',
+              flexShrink: 0,
+            }} />
+            <span className="text-body" style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+              {dash.readiness.label}
+            </span>
+            {dash.readiness.score_pct != null && (
+              <span className="text-caption">({dash.readiness.score_pct}%)</span>
+            )}
+          </div>
+          {dash.readiness.components?.map((c) => (
+            <div key={c.key} className="text-caption" style={{ padding: '2px 0' }}>
+              • {c.label}: {c.value} ({c.points}/{c.max_points} pts)
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Metric Drill-Downs */}
+      {drillDown && (
+        <MetricDrillDown
+          open={!!drillDown}
+          onClose={() => setDrillDown(null)}
+          title={METRIC_DEFS[drillDown]?.label || drillDown}
+          value={today ? getMetricValue(today, drillDown)?.toString() : undefined}
+        >
+          <div className="text-caption">Detailed view coming soon</div>
+        </MetricDrillDown>
+      )}
+    </div>
   )
 }

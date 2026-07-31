@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle } from 'lucide-react'
 import { apiGet, apiPost } from '../api/client'
 import type { SyncLogRow, SyncStatus } from '../api/types'
 
@@ -27,24 +28,48 @@ export default function SyncStatusCard() {
   if (!data || !data.stale) return null
 
   return (
-    <div className="card" style={{ borderColor: 'var(--amber)' }}>
-      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+    <div
+      className="card"
+      style={{ borderLeft: '3px solid var(--amber)', marginBottom: 12 }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <AlertTriangle size={18} color="var(--amber)" style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ flex: 1 }}>
-          <strong style={{ color: 'var(--amber)' }}>Garmin data may be outdated</strong>
-          <div className="muted" style={{ fontSize: '0.8rem' }}>
-            Last successful sync: {ageLabel(data.last_success_at)}
+          <div className="text-body" style={{ fontWeight: 600, color: 'var(--amber)' }}>
+            Garmin data may be outdated
+          </div>
+          <div className="text-caption" style={{ marginTop: 2 }}>
+            Last sync: {ageLabel(data.last_success_at)}
             {data.last_status === 'error' && data.last_error
               ? ` · ${data.last_error.slice(0, 120)}`
               : ''}
           </div>
+          {syncNow.isError && (
+            <div className="text-caption" style={{ color: 'var(--red)', marginTop: 4 }}>
+              {String(syncNow.error).replace(/^\d+: /, '').slice(0, 120)}
+            </div>
+          )}
         </div>
-        <button className="fixed" onClick={() => syncNow.mutate()} disabled={syncNow.isPending}>
+        <button
+          onClick={() => syncNow.mutate()}
+          disabled={syncNow.isPending}
+          style={{
+            background: 'var(--amber)',
+            color: '#1a1000',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 14px',
+            fontWeight: 600,
+            fontSize: '0.8rem',
+            minHeight: 44,
+            minWidth: 80,
+            flexShrink: 0,
+            opacity: syncNow.isPending ? 0.7 : 1,
+          }}
+        >
           {syncNow.isPending ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
-      {syncNow.isError && (
-        <p className="error-text">{String(syncNow.error).replace(/^\d+: /, '').slice(0, 120)}</p>
-      )}
     </div>
   )
 }

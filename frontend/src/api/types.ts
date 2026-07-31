@@ -129,6 +129,14 @@ export interface FoodLogRow {
   carbs_g: number | null
   fat_g: number | null
   logging_complete_day: number
+  source?: string
+}
+
+export interface MfpStatus {
+  cookie_set: boolean
+  last_sync_at: string | null
+  last_sync_status: string | null
+  last_sync_error: string | null
 }
 
 export interface ContextRow {
@@ -487,4 +495,13 @@ export interface CardioAnalytics {
   weekly: CardioWeekly[]
   load: { series: LoadDay[]; sufficient_history: boolean; history_days: number }
   pace_trend?: PacePoint[]
+}
+
+export interface MetricConfig {
+  id: string
+  label: string
+  icon: string  // lucide icon name
+  unit?: string
+  enabled: boolean
+  order: number
 }
