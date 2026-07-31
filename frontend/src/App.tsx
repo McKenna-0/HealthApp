@@ -1,63 +1,80 @@
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Home, ClipboardList, Dumbbell, Sparkles, Settings } from 'lucide-react'
 import GlobalSyncButton from './components/GlobalSyncButton'
+
 import Dashboard from './pages/Dashboard'
-import SleepPage from './pages/SleepPage'
-import WeightEnergyPage from './pages/WeightEnergyPage'
 import LogPage from './pages/LogPage'
 import FoodLogPage from './pages/FoodLogPage'
-import CheckinPage from './pages/CheckinPage'
-import OtherLogsPage from './pages/OtherLogsPage'
-import SettingsPage from './pages/SettingsPage'
-import WorkoutsPage from './pages/WorkoutsPage'
-import WorkoutDetailPage from './pages/WorkoutDetailPage'
 import FoodDetailPage from './pages/FoodDetailPage'
+import WorkoutsPage from './pages/WorkoutsPage'
 import ActiveWorkoutPage from './pages/ActiveWorkoutPage'
+import WorkoutDetailPage from './pages/WorkoutDetailPage'
 import WorkoutSummaryPage from './pages/WorkoutSummaryPage'
-import RoutinesPage from './pages/RoutinesPage'
 import ExerciseStatsPage from './pages/ExerciseStatsPage'
+import RoutinesPage from './pages/RoutinesPage'
 import BloodworkPage from './pages/BloodworkPage'
-import AIPage from './pages/AIPage'
-import MorePage from './pages/MorePage'
 import InsightsPage from './pages/InsightsPage'
+import AIPage from './pages/AIPage'
+import SettingsPage from './pages/SettingsPage'
 
-const tabs = [
-  { to: '/', icon: '📊', label: 'Today' },
-  { to: '/workouts', icon: '🏋️', label: 'Workouts' },
-  { to: '/log', icon: '➕', label: 'Log' },
-  { to: '/ai', icon: '🤖', label: 'AI' },
-  { to: '/more', icon: '⋯', label: 'More' },
+const TABS = [
+  { to: '/', icon: Home, label: 'Home' },
+  { to: '/log', icon: ClipboardList, label: 'Log' },
+  { to: '/workouts', icon: Dumbbell, label: 'Workouts' },
 ]
 
 export default function App() {
+  const location = useLocation()
+  const isActiveWorkout = location.pathname === '/workouts/active'
+
+  const pageTitle = (() => {
+    if (location.pathname === '/') return 'Today'
+    if (location.pathname === '/log') return 'Log'
+    if (location.pathname.startsWith('/workouts')) return 'Workouts'
+    if (location.pathname === '/settings') return 'Settings'
+    if (location.pathname === '/ai') return 'AI'
+    if (location.pathname === '/insights') return 'Insights'
+    if (location.pathname === '/bloodwork') return 'Bloodwork'
+    return ''
+  })()
+
   return (
     <div className="app">
-      <GlobalSyncButton />
+      <header className="app-header">
+        <h1>{pageTitle}</h1>
+        <div className="header-actions">
+          <GlobalSyncButton hide={isActiveWorkout} />
+          <NavLink to="/ai" className="header-btn" aria-label="AI assistant">
+            <Sparkles size={20} />
+          </NavLink>
+          <NavLink to="/settings" className="header-btn" aria-label="Settings">
+            <Settings size={20} />
+          </NavLink>
+        </div>
+      </header>
+
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/log" element={<LogPage />} />
+        <Route path="/log/food/:meal" element={<FoodLogPage />} />
+        <Route path="/log/food/:meal/detail" element={<FoodDetailPage />} />
         <Route path="/workouts" element={<WorkoutsPage />} />
         <Route path="/workouts/active" element={<ActiveWorkoutPage />} />
         <Route path="/workouts/routines" element={<RoutinesPage />} />
         <Route path="/workouts/stats/:exerciseId" element={<ExerciseStatsPage />} />
         <Route path="/workouts/:id/summary" element={<WorkoutSummaryPage />} />
         <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
-        <Route path="/sleep" element={<SleepPage />} />
-        <Route path="/weight" element={<WeightEnergyPage />} />
-        <Route path="/log" element={<LogPage />} />
-        <Route path="/log/food/:meal/detail" element={<FoodDetailPage />} />
-        <Route path="/log/food/:meal" element={<FoodLogPage />} />
-        <Route path="/log/checkin" element={<CheckinPage />} />
-        <Route path="/log/other" element={<OtherLogsPage />} />
         <Route path="/bloodwork" element={<BloodworkPage />} />
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/ai" element={<AIPage />} />
-        <Route path="/more" element={<MorePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
+
       <nav className="nav">
-        {tabs.map((t) => (
-          <NavLink key={t.to} to={t.to} className={({ isActive }) => (isActive ? 'active' : '')} end={t.to === '/'}>
-            <span className="icon">{t.icon}</span>
-            {t.label}
+        {TABS.map(t => (
+          <NavLink key={t.to} to={t.to} end={t.to === '/'}>
+            <t.icon size={24} />
+            <span>{t.label}</span>
           </NavLink>
         ))}
       </nav>

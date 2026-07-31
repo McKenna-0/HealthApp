@@ -1,38 +1,44 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw } from 'lucide-react'
 import { apiGet, apiPost } from '../api/client'
-import type { SyncLogRow, SyncStatus } from '../api/types'
+import type { SyncStatus } from '../api/types'
 
-export default function GlobalSyncButton() {
+export default function GlobalSyncButton({ hide = false }: { hide?: boolean }) {
   const qc = useQueryClient()
-  const { data } = useQuery({
+  const { data: st } = useQuery<SyncStatus>({
     queryKey: ['sync-status'],
-    queryFn: () => apiGet<SyncStatus>('/api/sync/status'),
-    refetchInterval: 5 * 60_000,
+    queryFn: () => apiGet('/api/sync/status'),
+    refetchInterval: 300_000,
+  })
+  const sync = useMutation({
+    mutationFn: () => apiPost('/api/sync'),
+    onSuccess: () => {
+      qc.invalidateQueries()
+    },
   })
 
-  const syncNow = useMutation({
-    mutationFn: () => apiPost<SyncLogRow>('/api/sync?days=7'),
-    onSuccess: () => qc.invalidateQueries(),
-  })
+  if (hide) return null
 
-  if (!data) return null
+  const stale = st && st.last_success_at &&
+    (Date.now() - new Date(st.last_success_at).getTime()) > 6 * 3600_000
+  const error = st?.last_error
 
-  const cls = syncNow.isPending
-    ? 'sync-btn syncing'
-    : data.stale
-      ? data.last_status === 'error'
-        ? 'sync-btn error'
-        : 'sync-btn stale'
-      : 'sync-btn fresh'
+  const color = sync.isPending ? 'var(--accent)' :
+    error ? 'var(--red)' :
+    stale ? 'var(--amber)' : 'var(--muted)'
 
   return (
     <button
-      className={cls}
-      onClick={() => syncNow.mutate()}
-      disabled={syncNow.isPending}
-      title={data.stale ? 'Sync stale — tap to sync' : 'Synced'}
+      className="header-btn"
+      onClick={() => sync.mutate()}
+      disabled={sync.isPending}
+      aria-label="Sync data"
     >
-      ↻
+      <RefreshCw
+        size={20}
+        color={color}
+        style={sync.isPending ? { animation: 'spin 1s linear infinite' } : undefined}
+      />
     </button>
   )
 }
