@@ -10,10 +10,23 @@ export default function ProgressBar({
   const pct = target ? Math.min((value / target) * 100, 100) : 0
   const over = target != null && value > target
   return (
-    <div className="progress-track">
+    <div
+      style={{
+        height: 5,
+        borderRadius: 99,
+        background: 'var(--border)',
+        overflow: 'hidden',
+        marginTop: 3,
+      }}
+    >
       <div
-        className={`progress-fill ${over ? 'over' : ''}`}
-        style={{ width: `${target ? pct : 0}%`, background: over ? undefined : color }}
+        style={{
+          height: '100%',
+          borderRadius: 99,
+          width: `${target ? pct : 0}%`,
+          background: over ? 'var(--red)' : color,
+          transition: 'width 0.3s ease',
+        }}
       />
     </div>
   )

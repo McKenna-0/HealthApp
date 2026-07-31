@@ -1,10 +1,12 @@
+import { Coffee, Sun, Moon, Cookie } from 'lucide-react'
 import type { FoodLogRow, Meal } from '../api/types'
+import SwipeToDelete from './SwipeToDelete'
 
-const MEAL_ICONS: Record<Meal, string> = {
-  breakfast: '☕',
-  lunch: '🥪',
-  dinner: '🍽️',
-  snack: '🍪',
+const MEAL_ICONS: Record<Meal, React.ReactNode> = {
+  breakfast: <Coffee size={18} />,
+  lunch: <Sun size={18} />,
+  dinner: <Moon size={18} />,
+  snack: <Cookie size={18} />,
 }
 
 const MEAL_LABELS: Record<Meal, string> = {
@@ -28,49 +30,82 @@ export default function MealCard({
   onEdit?: (entry: FoodLogRow) => void
 }) {
   const kcal = entries.reduce((a, e) => a + e.calories, 0)
-  const first = entries[0]?.description ?? null
+
   return (
-    <div className="card meal-card">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="row" style={{ gap: 10, flex: 1 }}>
-          <span style={{ fontSize: '1.2rem' }} className="fixed">
+    <div className="card meal-card" style={{ marginTop: 12, padding: 0, overflow: 'hidden' }}>
+      {/* Header row */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}>
             {MEAL_ICONS[meal]}
           </span>
           <div>
-            <strong>{MEAL_LABELS[meal]}</strong>
+            <div className="text-body" style={{ fontWeight: 600 }}>{MEAL_LABELS[meal]}</div>
             {entries.length > 0 && (
-              <div className="muted" style={{ fontSize: '0.78rem' }}>
-                {first}
-                {entries.length > 1 ? ` and ${entries.length - 1} more` : ''} · {Math.round(kcal)} cal
+              <div className="text-caption" style={{ color: 'var(--muted)' }}>
+                {Math.round(kcal)} cal · {entries.length} item{entries.length !== 1 ? 's' : ''}
               </div>
             )}
           </div>
         </div>
-        <button className="log-meal-btn fixed" onClick={onLog}>
-          Log
+        <button
+          onClick={onLog}
+          style={{
+            minWidth: 44,
+            minHeight: 44,
+            padding: '0 14px',
+            borderRadius: 10,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: 'var(--accent)',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+          }}
+        >
+          + Log
         </button>
       </div>
+
+      {/* Entries */}
       {entries.length > 0 && (
-        <div className="meal-entries">
+        <div style={{ borderTop: '1px solid var(--border)' }}>
           {entries.map((e) => (
-            <div key={e.id} className="list-item" style={{ padding: '6px 0' }}>
+            <SwipeToDelete key={e.id} onDelete={() => onDelete(e.id)}>
               <div
-                className="main"
-                style={onEdit && e.food_cache_id ? { cursor: 'pointer' } : undefined}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--card)',
+                  cursor: onEdit && e.food_cache_id ? 'pointer' : 'default',
+                }}
                 onClick={onEdit && e.food_cache_id ? () => onEdit(e) : undefined}
               >
-                <div className="detail" style={{ color: 'var(--text)' }}>
-                  {e.description ?? 'Food'}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="text-body" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.description ?? 'Food'}
+                    {e.source === 'myfitnesspal' && (
+                      <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginLeft: 6, fontWeight: 500 }}>MFP</span>
+                    )}
+                  </div>
+                  {e.quantity_g != null && (
+                    <div className="text-caption" style={{ color: 'var(--muted)' }}>{e.quantity_g}g</div>
+                  )}
                 </div>
-                <div className="detail">
-                  {e.quantity_g ? `${e.quantity_g}g · ` : ''}
+                <div className="text-caption" style={{ color: 'var(--muted)', marginLeft: 12, whiteSpace: 'nowrap' }}>
                   {Math.round(e.calories)} cal
                 </div>
               </div>
-              <button className="del" onClick={() => onDelete(e.id)}>
-                ✕
-              </button>
-            </div>
+            </SwipeToDelete>
           ))}
         </div>
       )}
