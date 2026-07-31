@@ -3,6 +3,13 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
 import type { HealthStatus, MfpStatus, SyncLogRow } from '../api/types'
+import {
+  getNotificationConfig,
+  saveNotificationConfig,
+  requestNotificationPermission,
+  NOTIFICATION_LABELS,
+  type NotificationType,
+} from '../notifications'
 
 interface Targets {
   calorie_target: number | null
@@ -394,6 +401,82 @@ function DashboardCard() {
   )
 }
 
+function NotificationsCard() {
+  const [notifConfig, setNotifConfig] = useState(getNotificationConfig)
+
+  async function toggleNotification(type: NotificationType) {
+    const current = notifConfig[type]
+    if (!current.enabled) {
+      const granted = await requestNotificationPermission()
+      if (!granted) return
+    }
+    const updated = {
+      ...notifConfig,
+      [type]: { ...current, enabled: !current.enabled },
+    }
+    setNotifConfig(updated)
+    saveNotificationConfig(updated)
+  }
+
+  function setNotifTime(type: NotificationType, time: string) {
+    const updated = {
+      ...notifConfig,
+      [type]: { ...notifConfig[type], time },
+    }
+    setNotifConfig(updated)
+    saveNotificationConfig(updated)
+  }
+
+  return (
+    <div className="card">
+      <div className="text-title" style={{ marginBottom: 12 }}>Notifications</div>
+      {(Object.keys(NOTIFICATION_LABELS) as NotificationType[]).map(type => {
+        const { label, description } = NOTIFICATION_LABELS[type]
+        const config = notifConfig[type]
+        return (
+          <div key={type} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 0', borderBottom: '1px solid var(--border)',
+          }}>
+            <div>
+              <div className="text-body">{label}</div>
+              <div className="text-caption">{description}</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {config.enabled && config.time !== undefined && (
+                <input
+                  type="time"
+                  value={config.time}
+                  onChange={e => setNotifTime(type, e.target.value)}
+                  style={{
+                    background: 'var(--card-elevated)', border: '1px solid var(--border)',
+                    borderRadius: 8, color: 'var(--text)', padding: '4px 8px', fontSize: '0.8rem',
+                  }}
+                />
+              )}
+              <button
+                onClick={() => toggleNotification(type)}
+                style={{
+                  width: 48, height: 28, borderRadius: 14, border: 'none',
+                  background: config.enabled ? 'var(--accent)' : 'var(--border)',
+                  position: 'relative', transition: 'background 0.2s', cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: 22, height: 22, borderRadius: '50%', background: 'white',
+                  position: 'absolute', top: 3,
+                  left: config.enabled ? 23 : 3,
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const qc = useQueryClient()
 
@@ -423,6 +506,10 @@ export default function SettingsPage() {
       {/* Dashboard */}
       <p className="settings-section-header">Dashboard</p>
       <DashboardCard />
+
+      {/* Notifications */}
+      <p className="settings-section-header">Notifications</p>
+      <NotificationsCard />
 
       {/* Integrations */}
       <p className="settings-section-header">Integrations</p>
