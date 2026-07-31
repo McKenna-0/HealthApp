@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
 import type { HealthStatus, MfpStatus, SyncLogRow } from '../api/types'
@@ -293,6 +294,106 @@ function MfpCard() {
   )
 }
 
+const METRIC_DEFS: Record<string, { label: string }> = {
+  hrv: { label: 'HRV' },
+  sleep_score: { label: 'Sleep Score' },
+  calories_out: { label: 'Cal Burned' },
+  steps: { label: 'Steps' },
+  resting_hr: { label: 'Resting HR' },
+  body_battery: { label: 'Body Battery' },
+}
+
+const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
+
+function DashboardCard() {
+  const [allMetrics, setAllMetrics] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('dashboard-metrics-config')
+      if (saved) return JSON.parse(saved)
+    } catch {}
+    return DEFAULT_METRICS
+  })
+
+  function toggleMetric(key: string) {
+    setAllMetrics(prev => {
+      const next = prev.includes(key)
+        ? prev.filter(k => k !== key)
+        : [...prev, key]
+      localStorage.setItem('dashboard-metrics-config', JSON.stringify(next))
+      return next
+    })
+  }
+
+  function moveMetric(key: string, direction: -1 | 1) {
+    setAllMetrics(prev => {
+      const idx = prev.indexOf(key)
+      if (idx < 0) return prev
+      const next = [...prev]
+      const target = idx + direction
+      if (target < 0 || target >= next.length) return prev
+      ;[next[idx], next[target]] = [next[target], next[idx]]
+      localStorage.setItem('dashboard-metrics-config', JSON.stringify(next))
+      return next
+    })
+  }
+
+  // Show all known metrics; enabled ones are those in allMetrics
+  const allKeys = DEFAULT_METRICS
+  // Order: enabled first (in their saved order), then disabled ones appended
+  const orderedKeys = [
+    ...allMetrics.filter(k => allKeys.includes(k)),
+    ...allKeys.filter(k => !allMetrics.includes(k)),
+  ]
+
+  return (
+    <div className="card">
+      <div className="text-title" style={{ marginBottom: 12 }}>Dashboard</div>
+      <div className="text-caption" style={{ marginBottom: 12 }}>Choose which metrics appear on your home page</div>
+      {orderedKeys.map((key, idx) => (
+        <div key={key} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 0', borderBottom: '1px solid var(--border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <button
+                onClick={() => moveMetric(key, -1)}
+                disabled={idx === 0}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', padding: 4, cursor: idx === 0 ? 'default' : 'pointer' }}
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                onClick={() => moveMetric(key, 1)}
+                disabled={idx === orderedKeys.length - 1}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', padding: 4, cursor: idx === orderedKeys.length - 1 ? 'default' : 'pointer' }}
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
+            <span className="text-body">{METRIC_DEFS[key]?.label || key}</span>
+          </div>
+          <button
+            onClick={() => toggleMetric(key)}
+            style={{
+              width: 48, height: 28, borderRadius: 14, border: 'none',
+              background: allMetrics.includes(key) ? 'var(--accent)' : 'var(--border)',
+              position: 'relative', transition: 'background 0.2s', cursor: 'pointer',
+            }}
+          >
+            <div style={{
+              width: 22, height: 22, borderRadius: '50%', background: 'white',
+              position: 'absolute', top: 3,
+              left: allMetrics.includes(key) ? 23 : 3,
+              transition: 'left 0.2s',
+            }} />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const qc = useQueryClient()
 
@@ -318,6 +419,10 @@ export default function SettingsPage() {
       {/* Profile / Targets */}
       <p className="settings-section-header">Profile</p>
       <TargetsCard />
+
+      {/* Dashboard */}
+      <p className="settings-section-header">Dashboard</p>
+      <DashboardCard />
 
       {/* Integrations */}
       <p className="settings-section-header">Integrations</p>
