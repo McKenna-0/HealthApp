@@ -218,7 +218,7 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height={50}>
                     <LineChart data={chartData}>
                       <YAxis domain={['dataMin', 'dataMax']} hide />
-                      <Line type="monotone" dataKey="v" stroke="var(--accent)" strokeWidth={1.5} dot={false} />
+                      <Line type="linear" dataKey="v" stroke="var(--accent)" strokeWidth={1.5} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>

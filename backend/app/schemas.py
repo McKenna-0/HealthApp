@@ -300,6 +300,18 @@ class FoodLogOut(ORMModel):
     carbs_g: float | None
     fat_g: float | None
     logging_complete_day: int
+    source: str = "manual"
+
+
+class MfpCookieIn(BaseModel):
+    cookie: str = Field(min_length=10)
+
+
+class MfpStatusOut(BaseModel):
+    cookie_set: bool
+    last_sync_at: str | None = None
+    last_sync_status: str | None = None
+    last_sync_error: str | None = None
 
 
 class ContextOut(ORMModel):

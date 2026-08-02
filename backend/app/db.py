@@ -63,3 +63,9 @@ def _add_missing_columns() -> None:
                     elif isinstance(arg, str):
                         ddl += f" DEFAULT '{arg}'"
                 conn.execute(text(ddl))
+        # Partial unique index for idempotent MFP food sync
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_foodlog_mfp "
+            "ON food_log(date, meal, description, source) "
+            "WHERE source = 'myfitnesspal'"
+        ))

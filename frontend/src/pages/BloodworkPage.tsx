@@ -103,7 +103,7 @@ export default function BloodworkPage() {
             <Tooltip {...tooltipStyle} />
             {historyRef?.low != null && <ReferenceLine y={historyRef.low} stroke="#fbbf24" strokeDasharray="4 4" />}
             {historyRef?.high != null && <ReferenceLine y={historyRef.high} stroke="#fbbf24" strokeDasharray="4 4" />}
-            <Line dataKey="value" stroke="#38bdf8" strokeWidth={2} />
+            <Line dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5, fill: '#38bdf8' }} />
           </LineChart>
         </ChartCard>
       )}

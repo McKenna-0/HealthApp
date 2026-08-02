@@ -81,11 +81,10 @@ export default function GenericDrillDown({ metricKey, unit }: { metricKey: strin
               />
               <Tooltip {...tooltipStyle} />
               <Line
-                type="monotone"
                 dataKey="value"
                 stroke="var(--accent)"
                 strokeWidth={2}
-                dot={false}
+                dot={{ r: 2.5, fill: 'var(--accent)' }}
                 name={unit ? `(${unit})` : metricKey}
               />
             </LineChart>

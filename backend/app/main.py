@@ -54,6 +54,7 @@ from .routers import (  # noqa: E402
     exercises,
     food,
     metrics,
+    mfp,
     routines,
     settings as settings_router,
     sync,
@@ -74,6 +75,7 @@ app.include_router(exercises.router)
 app.include_router(routines.router)
 app.include_router(bloodwork.router)
 app.include_router(ai.router)
+app.include_router(mfp.router)
 
 # Serve built frontend (SPA) if present.
 if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").exists():

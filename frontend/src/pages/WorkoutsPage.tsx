@@ -308,7 +308,7 @@ function StrengthTab() {
             <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={axisStyle} minTickGap={30} />
             <YAxis tick={axisStyle} width={40} domain={['auto', 'auto']} />
             <Tooltip {...tooltipStyle} />
-            <Line dataKey="best_e1rm" stroke="#4ade80" strokeWidth={2} name="e1RM" />
+            <Line dataKey="best_e1rm" stroke="#4ade80" strokeWidth={2} dot={{ r: 2.5, fill: '#4ade80' }} name="e1RM" />
           </LineChart>
         </ChartCard>
       )}
@@ -377,6 +377,7 @@ function CardioTab() {
             dataKey={type === 'cycling' ? 'speed_kmh' : 'pace_min_per_km'}
             stroke="#4ade80"
             strokeWidth={2}
+            dot={{ r: 2.5, fill: '#4ade80' }}
             name={type === 'cycling' ? 'km/h' : 'min/km'}
           />
         </LineChart>
@@ -388,8 +389,8 @@ function CardioTab() {
           <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={axisStyle} minTickGap={30} />
           <YAxis tick={axisStyle} width={35} />
           <Tooltip {...tooltipStyle} />
-          <Line dataKey="acute_7d" stroke="#f87171" dot={false} strokeWidth={2} name="Acute 7d" />
-          <Line dataKey="chronic_28d" stroke="#38bdf8" dot={false} strokeWidth={2} name="Chronic 28d" />
+          <Line dataKey="acute_7d" stroke="#f87171" dot={{ r: 2.5, fill: '#f87171' }} strokeWidth={2} name="Acute 7d" />
+          <Line dataKey="chronic_28d" stroke="#38bdf8" dot={{ r: 2.5, fill: '#38bdf8' }} strokeWidth={2} name="Chronic 28d" />
         </LineChart>
       </ChartCard>
       {data && !data.load.sufficient_history && (

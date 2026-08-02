@@ -287,7 +287,7 @@ function ExerciseStatsSheet({ exerciseId, onClose }: { exerciseId: number; onClo
               <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={axisStyle} minTickGap={30} />
               <YAxis tick={axisStyle} width={35} domain={['auto', 'auto']} />
               <Tooltip {...tooltipStyle} />
-              <Line dataKey="e1rm" stroke="#4ade80" strokeWidth={2} dot={false} name="e1RM" />
+              <Line dataKey="e1rm" stroke="#4ade80" strokeWidth={2} dot={{ r: 2.5, fill: '#4ade80' }} name="e1RM" />
             </LineChart>
           </div>
         )}

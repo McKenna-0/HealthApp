@@ -144,7 +144,6 @@ export default function WeightDrillDown() {
               <Tooltip {...tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />
               <Line
-                type="monotone"
                 dataKey="weight"
                 stroke="var(--muted)"
                 strokeWidth={1}
@@ -153,11 +152,10 @@ export default function WeightDrillDown() {
                 connectNulls={false}
               />
               <Line
-                type="monotone"
                 dataKey="trend"
                 stroke="var(--accent)"
                 strokeWidth={2}
-                dot={false}
+                dot={{ r: 2.5, fill: 'var(--accent)' }}
                 name="Trend (EWMA)"
               />
             </LineChart>
@@ -217,20 +215,18 @@ export default function WeightDrillDown() {
                   <Tooltip {...tooltipStyle} />
                   <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />
                   <Line
-                    type="monotone"
                     dataKey="calories_in"
                     stroke="#38bdf8"
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ r: 2.5, fill: '#38bdf8' }}
                     name="In"
                     connectNulls={false}
                   />
                   <Line
-                    type="monotone"
                     dataKey="calories_out"
                     stroke="#f87171"
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ r: 2.5, fill: '#f87171' }}
                     name="Out"
                     connectNulls={false}
                   />

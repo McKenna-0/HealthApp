@@ -117,7 +117,7 @@ export default function ExerciseStatsPage() {
             dataKey={metric}
             stroke="#4ade80"
             strokeWidth={2}
-            dot={chartData.length < 40}
+            dot={chartData.length < 40 ? { r: 2.5, fill: '#4ade80' } : false}
             name={metricDef.label}
             connectNulls
           />

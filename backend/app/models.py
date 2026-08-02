@@ -133,6 +133,7 @@ class FoodLog(Base):
     carbs_g: Mapped[float | None] = mapped_column(Float)
     fat_g: Mapped[float | None] = mapped_column(Float)
     logging_complete_day: Mapped[int] = mapped_column(Integer, default=1)
+    source: Mapped[str] = mapped_column(Text, default="manual")  # manual | myfitnesspal
 
 
 class DailyCheckin(Base):

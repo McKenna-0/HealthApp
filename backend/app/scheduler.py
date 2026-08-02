@@ -6,7 +6,7 @@ the primary mechanism.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -69,6 +69,48 @@ def _weekly_ai_report():
         db.close()
 
 
+def _run_mfp_sync():
+    db = SessionLocal()
+    try:
+        cookie = db.get(models.UserSetting, "mfp_cookie")
+        if not cookie or not cookie.value:
+            return  # MFP not configured, skip silently
+        from .services.mfp_sync import sync_range
+
+        end = now_local().date()
+        start = end - timedelta(days=1)
+        result = sync_range(db, start, end)
+        logger.info("MFP sync finished: %s", result)
+    except Exception:
+        logger.exception("MFP sync failed")
+    finally:
+        db.close()
+
+
+def _mfp_catchup_if_stale():
+    db = SessionLocal()
+    try:
+        cookie = db.get(models.UserSetting, "mfp_cookie")
+        if not cookie or not cookie.value:
+            return
+        last_sync = db.get(models.UserSetting, "mfp_last_sync_at")
+        stale = True
+        if last_sync and last_sync.value:
+            age = now_local() - datetime.fromisoformat(last_sync.value)
+            stale = age.total_seconds() > settings.catchup_after_hours * 3600
+        if stale:
+            logger.info("MFP sync stale or missing - running catch-up")
+            from .services.mfp_sync import sync_range
+
+            end = now_local().date()
+            start = end - timedelta(days=1)
+            sync_range(db, start, end)
+    except Exception:
+        logger.exception("MFP catch-up sync failed")
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -89,8 +131,16 @@ def start_scheduler() -> None:
         misfire_grace_time=6 * 3600,
         id="weekly_ai_report",
     )
+    _scheduler.add_job(
+        _run_mfp_sync,
+        CronTrigger(hour=22, minute=0),
+        coalesce=True,
+        misfire_grace_time=3600,
+        id="mfp_sync_2200",
+    )
     # catch-up shortly after startup so app start doesn't block
     _scheduler.add_job(_catchup_if_stale, "date")
+    _scheduler.add_job(_mfp_catchup_if_stale, "date")
     _scheduler.start()
     logger.info("Scheduler started (cron 07:30 & 21:30 %s)", settings.tz)
 

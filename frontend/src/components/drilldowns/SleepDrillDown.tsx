@@ -154,11 +154,10 @@ export default function SleepDrillDown() {
               />
               <Tooltip {...tooltipStyle} />
               <Line
-                type="monotone"
                 dataKey="score"
                 stroke="var(--accent)"
                 strokeWidth={2}
-                dot={false}
+                dot={{ r: 2.5, fill: 'var(--accent)' }}
                 name="Score"
               />
             </LineChart>
@@ -185,11 +184,10 @@ export default function SleepDrillDown() {
                   />
                   <Tooltip {...tooltipStyle} />
                   <Line
-                    type="monotone"
                     dataKey="hrv"
                     stroke="var(--green)"
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ r: 2.5, fill: 'var(--green)' }}
                     name="HRV (ms)"
                   />
                 </LineChart>
