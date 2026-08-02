@@ -13,6 +13,7 @@ set -euo pipefail
 cd "$APP_DIR"
 
 echo "==> Pulling latest code..."
+git stash --include-untracked 2>/dev/null || true
 git pull --ff-only
 
 echo "==> Installing backend dependencies..."
