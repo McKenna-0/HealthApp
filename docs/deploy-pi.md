@@ -1,4 +1,8 @@
-# Deploying to a Raspberry Pi (always-on, reachable anywhere via Tailscale)
+# Deploying to a Raspberry Pi (NOT currently in use)
+
+> **Note:** The app currently runs on the Dell host. See [`deploy-dell.md`](deploy-dell.md)
+> for the active deployment guide. This document is kept for reference in case the Pi
+> setup is needed in the future.
 
 Target: Raspberry Pi 4/5 (2GB+ RAM), Raspberry Pi OS **Lite 64-bit**, powered on 24/7.
 Result: the app runs at `https://<pi-name>.<tailnet>.ts.net` from your iPhone anywhere,

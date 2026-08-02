@@ -1,12 +1,13 @@
-# Tailscale on the laptop (interim setup until the Raspberry Pi arrives)
+# Tailscale on the laptop (development / fallback)
+
+> **Note:** The app now runs on the Dell host. See [`deploy-dell.md`](deploy-dell.md)
+> for the active deployment guide. This document covers running from the laptop as a
+> development or fallback option.
 
 Result: the app is reachable from your iPhone **anywhere** at
 `https://<laptop-name>.<tailnet>.ts.net` — while the laptop is awake. HTTPS means the
 camera barcode scanner works and Add to Home Screen installs the full PWA.
 Nothing is exposed to the public internet; only devices on your Tailscale account can connect.
-
-When the Pi arrives, follow `deploy-pi.md` — this setup carries over (same Tailscale
-account, just a different machine serving).
 
 ## 1. Install Tailscale (once)
 
