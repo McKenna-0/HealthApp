@@ -33,8 +33,9 @@ uv sync
 echo "==> Restarting uvicorn..."
 taskkill //F //IM uvicorn.exe 2>/dev/null || true
 sleep 2
+mkdir -p "$APP_DIR/logs"
 nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 \
-  >> "\$LOCALAPPDATA/health-app/uvicorn.log" 2>&1 &
+  >> "$APP_DIR/logs/uvicorn.log" 2>&1 &
 disown
 
 echo ""
