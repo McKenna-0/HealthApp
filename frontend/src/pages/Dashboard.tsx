@@ -9,10 +9,6 @@ import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
 import type { Dashboard as DashboardData, CorrelationsResponse, Workout } from '../api/types'
 import { getBalanceColor } from '../utils/balanceColor'
-
-interface Settings {
-  daily_balance_target: number | null
-}
 import MetricCard from '../components/MetricCard'
 import MetricDrillDown from '../components/MetricDrillDown'
 import SyncStatusCard from '../components/SyncStatusCard'
@@ -22,6 +18,10 @@ import WeightDrillDown from '../components/drilldowns/WeightDrillDown'
 import HrvDrillDown from '../components/drilldowns/HrvDrillDown'
 import GenericDrillDown from '../components/drilldowns/GenericDrillDown'
 import BodyBatteryDrillDown from '../components/drilldowns/BodyBatteryDrillDown'
+
+interface Settings {
+  daily_balance_target: number | null
+}
 
 const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
 
