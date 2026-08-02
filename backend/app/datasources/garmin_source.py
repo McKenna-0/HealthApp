@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from ..config import settings
 from .base import (
     ActivityDTO,
+    ActivityTimeSeriesDTO,
     DailyMetricsDTO,
     DataSource,
     HrZoneDTO,
@@ -196,6 +197,64 @@ def map_intraday_stress(day: date, data: dict) -> list[IntradayStressDTO]:
     return out
 
 
+def map_timeseries(data: dict) -> list[dict]:
+    """data: garmin.get_activity_details(id, maxchart=2000).
+    Returns list of {elapsed_s, hr, speed_mps, elevation_m, cadence} dicts."""
+    descriptors = _get(data, "metricDescriptors", default=[]) or []
+    metrics = _get(data, "activityDetailMetrics", default=[]) or []
+    if not descriptors or not metrics:
+        return []
+
+    # Build key -> index mapping
+    key_to_idx: dict[str, int] = {}
+    for d in descriptors:
+        key = _get(d, "key")
+        idx = _get(d, "metricsIndex")
+        if key is not None and idx is not None:
+            key_to_idx[key] = int(idx)
+
+    ts_idx = key_to_idx.get("directTimestamp")
+    hr_idx = key_to_idx.get("directHeartRate")
+    speed_idx = key_to_idx.get("directSpeed")
+    elev_idx = key_to_idx.get("directElevation")
+    cadence_idx = key_to_idx.get("directRunCadence") or key_to_idx.get("directBikeCadence")
+
+    if ts_idx is None:
+        return []
+
+    out = []
+    t0 = None
+    for entry in metrics:
+        vals = _get(entry, "metrics", default=[]) or []
+
+        def v(idx):
+            if idx is None or idx >= len(vals):
+                return None
+            return vals[idx]
+
+        ts = v(ts_idx)
+        if ts is None:
+            continue
+        ts_ms = float(ts)
+        if t0 is None:
+            t0 = ts_ms
+        elapsed_s = int((ts_ms - t0) / 1000)
+
+        raw_hr = v(hr_idx)
+        raw_speed = v(speed_idx)
+        raw_elev = v(elev_idx)
+        raw_cadence = v(cadence_idx)
+
+        out.append({
+            "elapsed_s": elapsed_s,
+            "hr": int(raw_hr) if raw_hr is not None else None,
+            "speed_mps": float(raw_speed) if raw_speed is not None else None,
+            "elevation_m": float(raw_elev) if raw_elev is not None else None,
+            "cadence": int(raw_cadence) if raw_cadence is not None else None,
+        })
+    return out
+
+
 def map_weight(entry: dict) -> WeightDTO | None:
     grams = _get(entry, "weight")
     day_str = _get(entry, "calendarDate")
@@ -295,6 +354,15 @@ class GarminSource(DataSource):
             logger.warning("Stress intraday fetch failed for %s", day.isoformat(), exc_info=True)
             return []
         return map_intraday_stress(day, data)
+
+    def fetch_activity_timeseries(self, external_id: str) -> ActivityTimeSeriesDTO | None:
+        try:
+            data = self._garmin().get_activity_details(external_id, maxchart=2000)
+        except Exception:
+            logger.warning("Time-series fetch failed for %s", external_id, exc_info=True)
+            return None
+        points = map_timeseries(data or {})
+        return ActivityTimeSeriesDTO(points=points) if points else None
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
         raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())

@@ -103,6 +103,11 @@ class IntradayStressDTO:
     stress_level: int
 
 
+@dataclass
+class ActivityTimeSeriesDTO:
+    points: list[dict]
+
+
 class DataSource(ABC):
     name: str
 
@@ -129,3 +134,6 @@ class DataSource(ABC):
 
     def fetch_intraday_stress(self, day: date) -> list[IntradayStressDTO]:
         return []
+
+    def fetch_activity_timeseries(self, external_id: str) -> ActivityTimeSeriesDTO | None:
+        return None

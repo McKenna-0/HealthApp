@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,7 +9,7 @@ from .. import models, schemas
 from ..datasources.factory import get_data_source
 from ..db import get_db
 from ..services import cardio, muscles, sessions, strength
-from ..timeutil import today_local
+from ..timeutil import iso_now, today_local
 
 router = APIRouter(prefix="/api/workouts", tags=["workouts"])
 
@@ -287,6 +288,25 @@ def workout_hr_zones(workout_id: int, db: Session = Depends(get_db)):
     db.add_all(rows)
     db.commit()
     return rows
+
+
+@router.get("/{workout_id}/timeseries", response_model=list[schemas.TimeSeriesPointOut])
+def workout_timeseries(workout_id: int, db: Session = Depends(get_db)):
+    act = _get_activity(db, workout_id)
+    cached = db.get(models.ActivityTimeSeries, workout_id)
+    if cached:
+        return json.loads(cached.data_json)
+    dto = get_data_source().fetch_activity_timeseries(act.external_id)
+    if dto is None:
+        return []
+    row = models.ActivityTimeSeries(
+        activity_id=workout_id,
+        fetched_at=iso_now(),
+        data_json=json.dumps(dto.points),
+    )
+    db.add(row)
+    db.commit()
+    return dto.points
 
 
 @router.get("/{workout_id}/summary", response_model=schemas.WorkoutSummaryOut)

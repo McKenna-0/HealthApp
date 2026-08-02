@@ -249,6 +249,16 @@ class ActivityHrZone(Base):
     zone_low_boundary: Mapped[int | None] = mapped_column(Integer)
 
 
+class ActivityTimeSeries(Base):
+    __tablename__ = "activity_timeseries"
+
+    activity_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("activities.id"), primary_key=True
+    )
+    fetched_at: Mapped[str] = mapped_column(Text)
+    data_json: Mapped[str] = mapped_column(Text)
+
+
 class UserSetting(Base):
     __tablename__ = "user_settings"
 

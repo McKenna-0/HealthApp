@@ -234,6 +234,14 @@ class HrZoneOut(ORMModel):
     zone_low_boundary: int | None
 
 
+class TimeSeriesPointOut(BaseModel):
+    elapsed_s: int | None = None
+    hr: int | None = None
+    speed_mps: float | None = None
+    elevation_m: float | None = None
+    cadence: int | None = None
+
+
 class WeightOut(ORMModel):
     id: int
     date: str

@@ -11,11 +11,12 @@ Ground truth built into the data (used by tests and to sanity-check TDEE):
   - one 4-day illness stretch per ~97 days: RHR +10, HRV down, steps way down
 """
 
+import math
 import random
 from datetime import date, datetime, time, timedelta
 
 from ..timeutil import tzinfo
-from .base import ActivityDTO, DailyMetricsDTO, DataSource, SleepDTO, WeightDTO
+from .base import ActivityDTO, ActivityTimeSeriesDTO, DailyMetricsDTO, DataSource, SleepDTO, WeightDTO
 
 ANCHOR = date(2026, 1, 1)
 BASE_WEIGHT_KG = 82.0
@@ -191,6 +192,33 @@ class MockSource(DataSource):
     def true_weight(self, day: date) -> float:
         """Underlying trend without measurement noise (used by tests)."""
         return BASE_WEIGHT_KG + WEIGHT_SLOPE_KG_PER_DAY * (day - ANCHOR).days
+
+    def fetch_activity_timeseries(self, external_id: str) -> ActivityTimeSeriesDTO | None:
+        if "run" not in external_id and "cycling" not in external_id:
+            return None
+        # Parse date from external_id pattern "mock-YYYY-MM-DD-run"
+        parts = external_id.split("-")
+        try:
+            day = date(int(parts[1]), int(parts[2]), int(parts[3]))
+        except (IndexError, ValueError):
+            return None
+        r = self._rng(day, "timeseries")
+        n_points = 180  # 15s intervals for ~45 min
+        points = []
+        for i in range(n_points):
+            elapsed_s = i * 15
+            hr = int(r.gauss(152, 8))
+            speed_mps = max(0.5, r.gauss(2.8, 0.3))
+            elevation_m = 45 + 10 * math.sin(elapsed_s / 300)
+            cadence = int(r.gauss(170, 5))
+            points.append({
+                "elapsed_s": elapsed_s,
+                "hr": hr,
+                "speed_mps": round(speed_mps, 3),
+                "elevation_m": round(elevation_m, 1),
+                "cadence": cadence,
+            })
+        return ActivityTimeSeriesDTO(points=points)
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
         out: list[WeightDTO] = []
