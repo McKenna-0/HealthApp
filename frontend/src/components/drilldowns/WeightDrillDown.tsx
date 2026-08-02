@@ -17,6 +17,11 @@ import { apiGet } from '../../api/client'
 import type { WeightTrendPoint, EnergyBalanceDay, TdeeResult } from '../../api/types'
 import RangePicker from '../RangePicker'
 import SkeletonLoader from '../SkeletonLoader'
+import { getBalanceColor } from '../../utils/balanceColor'
+
+interface Settings {
+  daily_balance_target: number | null
+}
 
 const tooltipStyle = {
   contentStyle: {
@@ -50,6 +55,11 @@ export default function WeightDrillDown() {
   const { data: tdee } = useQuery<TdeeResult>({
     queryKey: ['tdee'],
     queryFn: () => apiGet('/api/analytics/tdee'),
+  })
+
+  const { data: settings } = useQuery<Settings>({
+    queryKey: ['settings'],
+    queryFn: () => apiGet('/api/settings'),
   })
 
   const trendData = (trend ?? []).map(p => ({
@@ -187,7 +197,7 @@ export default function WeightDrillDown() {
                     {(energy ?? []).map(d => (
                       <Cell
                         key={d.date}
-                        fill={!d.valid ? 'var(--border)' : (d.balance ?? 0) > 0 ? 'var(--red)' : 'var(--green)'}
+                        fill={!d.valid ? 'var(--border)' : getBalanceColor(d.balance ?? 0, settings?.daily_balance_target ?? null)}
                       />
                     ))}
                   </Bar>

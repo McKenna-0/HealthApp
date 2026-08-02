@@ -18,6 +18,7 @@ DEFAULTS = {
     "protein_target_pct": None,
     "carbs_target_pct": None,
     "fat_target_pct": None,
+    "daily_balance_target": None,
 }
 
 
@@ -31,6 +32,7 @@ class SettingsIn(BaseModel):
     protein_target_pct: float | None = Field(default=None, ge=0, le=100)
     carbs_target_pct: float | None = Field(default=None, ge=0, le=100)
     fat_target_pct: float | None = Field(default=None, ge=0, le=100)
+    daily_balance_target: float | None = Field(default=None)
 
 
 _STRING_KEYS = {"macro_mode"}

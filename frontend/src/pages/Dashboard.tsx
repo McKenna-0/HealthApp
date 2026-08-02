@@ -8,6 +8,11 @@ import {
 import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
 import type { Dashboard as DashboardData, CorrelationsResponse, Workout } from '../api/types'
+import { getBalanceColor } from '../utils/balanceColor'
+
+interface Settings {
+  daily_balance_target: number | null
+}
 import MetricCard from '../components/MetricCard'
 import MetricDrillDown from '../components/MetricDrillDown'
 import SyncStatusCard from '../components/SyncStatusCard'
@@ -91,6 +96,11 @@ export default function Dashboard() {
   const { data: correlations } = useQuery<CorrelationsResponse>({
     queryKey: ['correlations'],
     queryFn: () => apiGet('/api/analytics/correlations?days=90'),
+  })
+
+  const { data: settings } = useQuery<Settings>({
+    queryKey: ['settings'],
+    queryFn: () => apiGet('/api/settings'),
   })
 
   // series is sorted oldest-first; last entry = today
@@ -187,7 +197,7 @@ export default function Dashboard() {
                 <div className="text-caption">Balance</div>
                 <div className="text-body" style={{
                   fontWeight: 600,
-                  color: today.balance != null ? (today.balance > 0 ? 'var(--red)' : 'var(--green)') : undefined,
+                  color: today.balance != null ? getBalanceColor(today.balance, settings?.daily_balance_target ?? null) : undefined,
                 }}>
                   {today.balance != null ? `${today.balance > 0 ? '+' : ''}${today.balance}` : '–'}
                 </div>

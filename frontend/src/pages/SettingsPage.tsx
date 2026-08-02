@@ -21,6 +21,7 @@ interface Targets {
   protein_target_pct: number | null
   carbs_target_pct: number | null
   fat_target_pct: number | null
+  daily_balance_target: number | null
 }
 
 function TargetsCard() {
@@ -39,6 +40,7 @@ function TargetsCard() {
     protein_target_pct: '',
     carbs_target_pct: '',
     fat_target_pct: '',
+    daily_balance_target: '',
   })
 
   useEffect(() => {
@@ -53,6 +55,7 @@ function TargetsCard() {
         protein_target_pct: data.protein_target_pct?.toString() ?? '',
         carbs_target_pct: data.carbs_target_pct?.toString() ?? '',
         fat_target_pct: data.fat_target_pct?.toString() ?? '',
+        daily_balance_target: data.daily_balance_target?.toString() ?? '',
       })
     }
   }, [data])
@@ -69,6 +72,7 @@ function TargetsCard() {
         protein_target_pct: form.protein_target_pct ? parseFloat(form.protein_target_pct) : null,
         carbs_target_pct: form.carbs_target_pct ? parseFloat(form.carbs_target_pct) : null,
         fat_target_pct: form.fat_target_pct ? parseFloat(form.fat_target_pct) : null,
+        daily_balance_target: form.daily_balance_target ? parseFloat(form.daily_balance_target) : null,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
@@ -104,6 +108,13 @@ function TargetsCard() {
       <div className="row" style={{ marginBottom: 12 }}>
         {field('calorie_target', 'Calories')}
         {field('weight_goal_kg', 'Weight goal (kg)')}
+      </div>
+
+      <div className="row" style={{ marginBottom: 4 }}>
+        {field('daily_balance_target', 'Balance target (kcal)')}
+      </div>
+      <div className="text-caption" style={{ marginBottom: 12, color: 'var(--muted)' }}>
+        e.g. +200 for surplus, -500 for deficit
       </div>
 
       <div className="text-caption" style={{ marginBottom: 6 }}>Macro targets</div>
