@@ -3,8 +3,10 @@ import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
-import type { Exercise, HrZone, Lap, SessionPayload, WorkoutDetail } from '../api/types'
+import type { Exercise, HrZone, Lap, SessionPayload, TimeSeriesPoint, WorkoutDetail } from '../api/types'
+import ChartCard from '../components/ChartCard'
 import SwipeToDelete from '../components/SwipeToDelete'
+import { AreaChart, Area, BarChart, Bar, CartesianGrid, Cell, LineChart, Line, Tooltip, XAxis, YAxis } from 'recharts'
 
 function fmtDuration(min: number | null) {
   if (min == null) return '–'
@@ -145,12 +147,254 @@ export default function WorkoutDetailPage() {
           {tab === 'overview' && <OverviewTab workoutId={id!} activity={a} />}
           {tab === 'stats' && <StatsTab activity={a} />}
           {tab === 'laps' && <LapsTabContent workoutId={id!} type={a.type} />}
-          {tab === 'charts' && (
-            <p className="muted" style={{ textAlign: 'center', padding: 32 }}>Charts coming soon…</p>
-          )}
+          {tab === 'charts' && <ChartsTab workoutId={id!} type={a.type} />}
         </>
       )}
     </>
+  )
+}
+
+// ---- Charts Tab ----
+
+const axisStyle = { fontSize: 10, fill: '#94a3b8' }
+const tooltipStyle = {
+  contentStyle: { background: '#1e293b', border: '1px solid #334155', borderRadius: 8 },
+  labelStyle: { color: '#94a3b8' },
+}
+const ZONE_BAR_COLORS = ['#64748b', '#38bdf8', '#4ade80', '#fbbf24', '#f87171']
+
+function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null }) {
+  const { data: timeseries, isLoading } = useQuery({
+    queryKey: ['timeseries', workoutId],
+    queryFn: () => apiGet<TimeSeriesPoint[]>(`/api/workouts/${workoutId}/timeseries`),
+  })
+  const { data: zones } = useQuery({
+    queryKey: ['hr-zones', workoutId],
+    queryFn: () => apiGet<HrZone[]>(`/api/workouts/${workoutId}/hr-zones`),
+  })
+
+  if (isLoading) return <p className="muted">Loading charts…</p>
+  if (!timeseries || timeseries.length === 0) {
+    return (
+      <p className="muted" style={{ textAlign: 'center', padding: 32 }}>
+        Chart data not available for this activity.
+      </p>
+    )
+  }
+
+  function fmtElapsed(s: number) {
+    const totalSecs = Math.round(s)
+    const h = Math.floor(totalSecs / 3600)
+    const m = Math.floor((totalSecs % 3600) / 60)
+    const sec = totalSecs % 60
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    return `${m}:${String(sec).padStart(2, '0')}`
+  }
+
+  const pts = timeseries.filter((p) => p.elapsed_s != null)
+  const isRunning = type === 'running'
+
+  const hasHr = pts.some((p) => p.hr != null)
+  const hasSpeed = pts.some((p) => p.speed_mps != null)
+  const hasElevation = pts.some((p) => p.elevation_m != null)
+  const hasCadence = pts.some((p) => p.cadence != null)
+
+  // Compute derived pace/speed data
+  const paceData = isRunning
+    ? pts.map((p) => ({
+        ...p,
+        pace: p.speed_mps ? 1000 / p.speed_mps / 60 : null,
+      }))
+    : pts.map((p) => ({
+        ...p,
+        speed_kmh: p.speed_mps ? p.speed_mps * 3.6 : null,
+      }))
+
+  const hasZones = zones && zones.length > 0
+
+  return (
+    <div>
+      {hasHr && (
+        <ChartCard title="Heart Rate" height={200}>
+          <LineChart data={pts} isAnimationActive={false}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              dataKey="elapsed_s"
+              tickFormatter={fmtElapsed}
+              tick={axisStyle}
+              minTickGap={40}
+            />
+            <YAxis tick={axisStyle} label={{ value: 'bpm', angle: -90, position: 'insideLeft', style: axisStyle }} />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(v) => fmtElapsed(v as number)}
+              formatter={(v) => [`${v} bpm`, 'HR']}
+            />
+            <Line
+              type="monotone"
+              dataKey="hr"
+              stroke="#f87171"
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartCard>
+      )}
+
+      {hasSpeed && (
+        <ChartCard title={isRunning ? 'Pace' : 'Speed'} height={200}>
+          <LineChart data={paceData} isAnimationActive={false}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              dataKey="elapsed_s"
+              tickFormatter={fmtElapsed}
+              tick={axisStyle}
+              minTickGap={40}
+            />
+            {isRunning ? (
+              <YAxis
+                tick={axisStyle}
+                reversed
+                label={{ value: 'min/km', angle: -90, position: 'insideLeft', style: axisStyle }}
+                tickFormatter={(v: number) => {
+                  const m = Math.floor(v)
+                  const s = Math.round((v - m) * 60)
+                  return `${m}:${String(s).padStart(2, '0')}`
+                }}
+              />
+            ) : (
+              <YAxis
+                tick={axisStyle}
+                label={{ value: 'km/h', angle: -90, position: 'insideLeft', style: axisStyle }}
+              />
+            )}
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(v) => fmtElapsed(v as number)}
+              formatter={(v: number) => {
+                if (isRunning) {
+                  const m = Math.floor(v)
+                  const s = Math.round((v - m) * 60)
+                  return [`${m}:${String(s).padStart(2, '0')} /km`, 'Pace']
+                }
+                return [`${v.toFixed(1)} km/h`, 'Speed']
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey={isRunning ? 'pace' : 'speed_kmh'}
+              stroke="#4ade80"
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartCard>
+      )}
+
+      {hasElevation && (
+        <ChartCard title="Elevation" height={160}>
+          <AreaChart data={pts} isAnimationActive={false}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              dataKey="elapsed_s"
+              tickFormatter={fmtElapsed}
+              tick={axisStyle}
+              minTickGap={40}
+            />
+            <YAxis tick={axisStyle} label={{ value: 'm', angle: -90, position: 'insideLeft', style: axisStyle }} />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(v) => fmtElapsed(v as number)}
+              formatter={(v) => [`${v} m`, 'Elevation']}
+            />
+            <Area
+              type="monotone"
+              dataKey="elevation_m"
+              stroke="#38bdf8"
+              fill="#38bdf8"
+              fillOpacity={0.15}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ChartCard>
+      )}
+
+      {hasCadence && (
+        <ChartCard title="Cadence" height={160}>
+          <LineChart data={pts} isAnimationActive={false}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              dataKey="elapsed_s"
+              tickFormatter={fmtElapsed}
+              tick={axisStyle}
+              minTickGap={40}
+            />
+            <YAxis tick={axisStyle} label={{ value: 'spm', angle: -90, position: 'insideLeft', style: axisStyle }} />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(v) => fmtElapsed(v as number)}
+              formatter={(v) => [`${v} spm`, 'Cadence']}
+            />
+            <Line
+              type="monotone"
+              dataKey="cadence"
+              stroke="#a78bfa"
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartCard>
+      )}
+
+      {hasZones && (
+        <ChartCard title="Time in Zones" height={180}>
+          <BarChart
+            data={zones}
+            layout="vertical"
+            isAnimationActive={false}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              type="number"
+              tick={axisStyle}
+              tickFormatter={(v: number) => {
+                const m = Math.floor(v / 60)
+                const s = Math.round(v % 60)
+                return `${m}:${String(s).padStart(2, '0')}`
+              }}
+            />
+            <YAxis
+              type="category"
+              dataKey="zone_number"
+              tick={axisStyle}
+              tickFormatter={(v) => `Z${v}`}
+              width={28}
+            />
+            <Tooltip
+              {...tooltipStyle}
+              formatter={(v: number) => {
+                const m = Math.floor(v / 60)
+                const s = Math.round(v % 60)
+                return [`${m}:${String(s).padStart(2, '0')}`, 'Time']
+              }}
+              labelFormatter={(v) => `Zone ${v}`}
+            />
+            <Bar dataKey="secs_in_zone" isAnimationActive={false}>
+              {zones.map((z) => (
+                <Cell
+                  key={z.zone_number}
+                  fill={ZONE_BAR_COLORS[(z.zone_number - 1)] ?? '#64748b'}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ChartCard>
+      )}
+    </div>
   )
 }
 
