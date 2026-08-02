@@ -305,3 +305,25 @@ class SyncLog(Base):
     days_requested: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text)  # ok | error
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class IntradayBodyBattery(Base):
+    __tablename__ = "intraday_body_battery"
+    __table_args__ = (UniqueConstraint("date", "timestamp", name="uq_ibb_date_ts"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(Text, index=True)
+    timestamp: Mapped[str] = mapped_column(Text)
+    body_battery: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(Text)
+
+
+class IntradayStress(Base):
+    __tablename__ = "intraday_stress"
+    __table_args__ = (UniqueConstraint("date", "timestamp", name="uq_ist_date_ts"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(Text, index=True)
+    timestamp: Mapped[str] = mapped_column(Text)
+    stress_level: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(Text)

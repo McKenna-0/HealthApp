@@ -428,3 +428,13 @@ class ContextIn(BaseModel):
     value: float | None = None
     label: str | None = None
     note: str | None = None
+
+
+class IntradayBodyBatteryOut(ORMModel):
+    timestamp: str
+    body_battery: int
+
+
+class IntradayStressOut(ORMModel):
+    timestamp: str
+    stress_level: int

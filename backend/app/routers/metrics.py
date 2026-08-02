@@ -38,3 +38,23 @@ def activities(
     start: str | None = None, end: str | None = None, db: Session = Depends(get_db)
 ):
     return _range_query(db, models.Activity, start, end)
+
+
+@router.get("/metrics/body-battery/intraday", response_model=list[schemas.IntradayBodyBatteryOut])
+def intraday_body_battery(date: str = Query(...), db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(models.IntradayBodyBattery)
+        .where(models.IntradayBodyBattery.date == date)
+        .order_by(models.IntradayBodyBattery.timestamp)
+    ).all()
+    return rows
+
+
+@router.get("/metrics/stress/intraday", response_model=list[schemas.IntradayStressOut])
+def intraday_stress(date: str = Query(...), db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(models.IntradayStress)
+        .where(models.IntradayStress.date == date)
+        .order_by(models.IntradayStress.timestamp)
+    ).all()
+    return rows

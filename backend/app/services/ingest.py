@@ -44,6 +44,20 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
                 vals["date"] = sleep.date.isoformat()
                 vals.update(source=source.name, synced_at=iso_now())
                 _upsert(db, models.Sleep, vals, ["date"])
+            for bb in source.fetch_intraday_body_battery(day):
+                _upsert(db, models.IntradayBodyBattery, {
+                    "date": bb.date.isoformat(),
+                    "timestamp": bb.timestamp,
+                    "body_battery": bb.body_battery,
+                    "source": source.name,
+                }, ["date", "timestamp"])
+            for st in source.fetch_intraday_stress(day):
+                _upsert(db, models.IntradayStress, {
+                    "date": st.date.isoformat(),
+                    "timestamp": st.timestamp,
+                    "stress_level": st.stress_level,
+                    "source": source.name,
+                }, ["date", "timestamp"])
             day += timedelta(days=1)
 
         for act in source.fetch_activities(start, end):

@@ -89,6 +89,20 @@ class HrZoneDTO:
     zone_low_boundary: int | None = None
 
 
+@dataclass
+class IntradayBodyBatteryDTO:
+    date: date
+    timestamp: str
+    body_battery: int
+
+
+@dataclass
+class IntradayStressDTO:
+    date: date
+    timestamp: str
+    stress_level: int
+
+
 class DataSource(ABC):
     name: str
 
@@ -108,4 +122,10 @@ class DataSource(ABC):
         return []
 
     def fetch_activity_hr_zones(self, external_id: str) -> list[HrZoneDTO]:
+        return []
+
+    def fetch_intraday_body_battery(self, day: date) -> list[IntradayBodyBatteryDTO]:
+        return []
+
+    def fetch_intraday_stress(self, day: date) -> list[IntradayStressDTO]:
         return []

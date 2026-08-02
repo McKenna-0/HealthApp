@@ -15,6 +15,8 @@ from .base import (
     DailyMetricsDTO,
     DataSource,
     HrZoneDTO,
+    IntradayBodyBatteryDTO,
+    IntradayStressDTO,
     LapDTO,
     SleepDTO,
     WeightDTO,
@@ -157,6 +159,44 @@ def map_hr_zones(data) -> list[HrZoneDTO]:
     return sorted(out, key=lambda z: z.zone_number)
 
 
+def map_intraday_body_battery(day: date, data: list) -> list[IntradayBodyBatteryDTO]:
+    """data: garmin.get_body_battery(date) — list of dicts with startTimestampLocal and bodyBatteryLevel."""
+    out = []
+    for entry in data or []:
+        if not isinstance(entry, dict):
+            continue
+        ts = _get(entry, "startTimestampLocal") or _get(entry, "timestampLocal")
+        level = _get(entry, "bodyBatteryLevel") or _get(entry, "level")
+        if ts is None or level is None:
+            continue
+        # Use HH:MM portion if full ISO, else store as-is
+        ts_str = str(ts)
+        if "T" in ts_str:
+            ts_str = ts_str.split("T")[1][:5]
+        out.append(IntradayBodyBatteryDTO(date=day, timestamp=ts_str, body_battery=int(level)))
+    return out
+
+
+def map_intraday_stress(day: date, data: dict) -> list[IntradayStressDTO]:
+    """data: garmin.get_stress_data(date) — dict with stressValuesArray: [[ts_ms, stress], ...]."""
+    out = []
+    stress_array = _get(data, "stressValuesArray", default=[]) or []
+    for entry in stress_array:
+        if not (isinstance(entry, (list, tuple)) and len(entry) >= 2):
+            continue
+        ts_ms, stress_val = entry[0], entry[1]
+        if stress_val is None or int(stress_val) < 0:
+            continue  # -1 = unmeasured / rest
+        from datetime import datetime, timezone
+        try:
+            dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone()
+            ts_str = dt.strftime("%H:%M")
+        except Exception:
+            continue
+        out.append(IntradayStressDTO(date=day, timestamp=ts_str, stress_level=int(stress_val)))
+    return out
+
+
 def map_weight(entry: dict) -> WeightDTO | None:
     grams = _get(entry, "weight")
     day_str = _get(entry, "calendarDate")
@@ -240,6 +280,22 @@ class GarminSource(DataSource):
             logger.warning("HR zones fetch failed for %s", external_id, exc_info=True)
             return []
         return map_hr_zones(data)
+
+    def fetch_intraday_body_battery(self, day: date) -> list[IntradayBodyBatteryDTO]:
+        try:
+            data = self._garmin().get_body_battery(day.isoformat())
+        except Exception:
+            logger.warning("Body battery intraday fetch failed for %s", day.isoformat(), exc_info=True)
+            return []
+        return map_intraday_body_battery(day, data)
+
+    def fetch_intraday_stress(self, day: date) -> list[IntradayStressDTO]:
+        try:
+            data = self._garmin().get_stress_data(day.isoformat())
+        except Exception:
+            logger.warning("Stress intraday fetch failed for %s", day.isoformat(), exc_info=True)
+            return []
+        return map_intraday_stress(day, data)
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
         raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())

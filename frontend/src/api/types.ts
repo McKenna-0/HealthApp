@@ -505,3 +505,13 @@ export interface MetricConfig {
   enabled: boolean
   order: number
 }
+
+export interface IntradayBodyBatteryPoint {
+  timestamp: string
+  body_battery: number
+}
+
+export interface IntradayStressPoint {
+  timestamp: string
+  stress_level: number
+}

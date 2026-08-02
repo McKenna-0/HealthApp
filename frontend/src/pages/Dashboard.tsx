@@ -16,6 +16,7 @@ import SleepDrillDown from '../components/drilldowns/SleepDrillDown'
 import WeightDrillDown from '../components/drilldowns/WeightDrillDown'
 import HrvDrillDown from '../components/drilldowns/HrvDrillDown'
 import GenericDrillDown from '../components/drilldowns/GenericDrillDown'
+import BodyBatteryDrillDown from '../components/drilldowns/BodyBatteryDrillDown'
 
 const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
 
@@ -287,7 +288,7 @@ export default function Dashboard() {
           {drillDown === 'calories_out' && <GenericDrillDown metricKey="calories_out" unit="kcal" />}
           {drillDown === 'steps' && <GenericDrillDown metricKey="steps" />}
           {drillDown === 'resting_hr' && <GenericDrillDown metricKey="resting_hr" unit="bpm" />}
-          {drillDown === 'body_battery' && <GenericDrillDown metricKey="body_battery_high" />}
+          {drillDown === 'body_battery' && <BodyBatteryDrillDown />}
         </MetricDrillDown>
       )}
     </div>
