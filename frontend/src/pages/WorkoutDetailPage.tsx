@@ -200,15 +200,11 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
   const hasCadence = pts.some((p) => p.cadence != null)
 
   // Compute derived pace/speed data
-  const paceData = isRunning
-    ? pts.map((p) => ({
-        ...p,
-        pace: p.speed_mps ? 1000 / p.speed_mps / 60 : null,
-      }))
-    : pts.map((p) => ({
-        ...p,
-        speed_kmh: p.speed_mps ? p.speed_mps * 3.6 : null,
-      }))
+  const paceData = pts.map((p) => ({
+    ...p,
+    pace: p.speed_mps ? 1000 / p.speed_mps / 60 : null,
+    speed_kmh: p.speed_mps ? p.speed_mps * 3.6 : null,
+  }))
 
   const hasZones = zones && zones.length > 0
 
@@ -216,7 +212,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
     <div>
       {hasHr && (
         <ChartCard title="Heart Rate" height={200}>
-          <LineChart data={pts} isAnimationActive={false}>
+          <LineChart data={pts} >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
               dataKey="elapsed_s"
@@ -244,7 +240,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
 
       {hasSpeed && (
         <ChartCard title={isRunning ? 'Pace' : 'Speed'} height={200}>
-          <LineChart data={paceData} isAnimationActive={false}>
+          <LineChart data={paceData} >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
               dataKey="elapsed_s"
@@ -272,7 +268,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
             <Tooltip
               {...tooltipStyle}
               labelFormatter={(v) => fmtElapsed(v as number)}
-              formatter={(v: number) => {
+              formatter={(v: any) => {
                 if (isRunning) {
                   const m = Math.floor(v)
                   const s = Math.round((v - m) * 60)
@@ -295,7 +291,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
 
       {hasElevation && (
         <ChartCard title="Elevation" height={160}>
-          <AreaChart data={pts} isAnimationActive={false}>
+          <AreaChart data={pts} >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
               dataKey="elapsed_s"
@@ -324,7 +320,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
 
       {hasCadence && (
         <ChartCard title="Cadence" height={160}>
-          <LineChart data={pts} isAnimationActive={false}>
+          <LineChart data={pts} >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
               dataKey="elapsed_s"
@@ -355,7 +351,6 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
           <BarChart
             data={zones}
             layout="vertical"
-            isAnimationActive={false}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
@@ -376,7 +371,7 @@ function ChartsTab({ workoutId, type }: { workoutId: string; type: string | null
             />
             <Tooltip
               {...tooltipStyle}
-              formatter={(v: number) => {
+              formatter={(v: any) => {
                 const m = Math.floor(v / 60)
                 const s = Math.round(v % 60)
                 return [`${m}:${String(s).padStart(2, '0')}`, 'Time']

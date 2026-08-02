@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # Deploy the health app to the Dell host over SSH.
+# Builds frontend locally, pushes code, copies static files, and restarts.
 # Usage: bash scripts/deploy.sh
 set -euo pipefail
 
 DELL_HOST="conor@100.95.44.32"
-APP_DIR="/home/conor/health-app"   # path on the Dell
+APP_DIR="/home/conor/health-app"
+
+echo "==> Building frontend locally..."
+bash scripts/build_frontend.sh
+
+echo "==> Pushing to origin..."
+git push origin main
+
+echo "==> Copying frontend build to Dell..."
+scp -r backend/app/static "$DELL_HOST:$APP_DIR/backend/app/"
 
 echo "==> Connecting to Dell ($DELL_HOST)..."
 
-ssh "$DELL_HOST" bash -s << REMOTE
+ssh "$DELL_HOST" bash --login -s << REMOTE
 set -euo pipefail
 cd "$APP_DIR"
 
@@ -19,25 +29,10 @@ git pull --ff-only
 echo "==> Installing backend dependencies..."
 cd backend
 uv sync
-cd ..
-
-echo "==> Building frontend..."
-cd frontend
-npm ci --prefer-offline
-npm run build
-cd ..
-
-echo "==> Copying frontend build to backend static dir..."
-rm -rf backend/app/static
-mkdir -p backend/app/static
-cp -r frontend/dist/* backend/app/static/
 
 echo "==> Restarting uvicorn..."
-# Kill existing uvicorn process, then relaunch detached
 taskkill //F //IM uvicorn.exe 2>/dev/null || true
-# Small delay for port release
 sleep 2
-cd backend
 nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 \
   >> "\$LOCALAPPDATA/health-app/uvicorn.log" 2>&1 &
 disown
