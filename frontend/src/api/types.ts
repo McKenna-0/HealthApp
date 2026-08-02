@@ -515,3 +515,11 @@ export interface IntradayStressPoint {
   timestamp: string
   stress_level: number
 }
+
+export interface TimeSeriesPoint {
+  elapsed_s: number | null
+  hr: number | null
+  speed_mps: number | null
+  elevation_m: number | null
+  cadence: number | null
+}

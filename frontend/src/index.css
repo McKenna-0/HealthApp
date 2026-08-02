@@ -1175,3 +1175,76 @@ th {
 .settings-section-header:first-child {
   margin-top: 8px;
 }
+
+/* Cardio detail tabs */
+.workout-banner {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.workout-banner .metric-card {
+  text-align: center;
+  padding: 14px 8px;
+}
+
+.workout-banner .value {
+  font-size: 1.5rem;
+}
+
+.stats-section summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+
+.stats-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.stats-section[open] summary {
+  margin-bottom: 4px;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.stats-row:last-child {
+  border-bottom: none;
+}
+
+.stats-row .label {
+  color: var(--muted);
+}
+
+.stats-row .value {
+  font-weight: 600;
+}
+
+.lap-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.lap-summary .value {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.lap-summary .label {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
