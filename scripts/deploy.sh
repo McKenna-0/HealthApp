@@ -11,7 +11,7 @@ echo "==> Building frontend locally..."
 bash scripts/build_frontend.sh
 
 echo "==> Pushing to origin..."
-git push origin main
+git push origin main || echo "WARNING: git push failed — ensure code is pushed before deploying"
 
 echo "==> Copying frontend build to Dell..."
 scp -r backend/app/static "$DELL_HOST:$APP_DIR/backend/app/"
