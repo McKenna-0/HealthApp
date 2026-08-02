@@ -55,9 +55,11 @@ export default function SwipeToDelete({
 
   return (
     <div className="swipe-container" ref={containerRef}>
-      <div className="swipe-delete-bg" onClick={() => triggerDelete()}>
-        <Trash2 size={20} />
-      </div>
+      {offset > 0 && (
+        <div className="swipe-delete-bg" onClick={() => triggerDelete()}>
+          <Trash2 size={20} />
+        </div>
+      )}
       <div
         className="swipe-content"
         style={{ transform: `translateX(-${offset}px)` }}
