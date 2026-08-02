@@ -153,6 +153,7 @@ export default function BodyBatteryDrillDown() {
                 ]}
               />
               <Line
+                type="linear"
                 dataKey="body_battery"
                 stroke="var(--accent)"
                 strokeWidth={2}
@@ -161,6 +162,7 @@ export default function BodyBatteryDrillDown() {
                 connectNulls
               />
               <Line
+                type="linear"
                 dataKey="stress"
                 stroke="var(--red, #ef4444)"
                 strokeWidth={1}

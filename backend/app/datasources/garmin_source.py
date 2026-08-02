@@ -7,7 +7,7 @@ unit-tested against recorded sample JSON fixtures.
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 from ..config import settings
 from .base import (
@@ -187,7 +187,6 @@ def map_intraday_stress(day: date, data: dict) -> list[IntradayStressDTO]:
         ts_ms, stress_val = entry[0], entry[1]
         if stress_val is None or int(stress_val) < 0:
             continue  # -1 = unmeasured / rest
-        from datetime import datetime, timezone
         try:
             dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone()
             ts_str = dt.strftime("%H:%M")
