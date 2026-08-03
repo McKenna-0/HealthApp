@@ -34,8 +34,12 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "@claude"
           track_progress: true
-          claude_args: |
-            --allowedTools "Edit,Write,Bash,Read,Glob,Grep,LS"
+          settings: |
+            {
+              "permissions": {
+                "allow": ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "LS"]
+              }
+            }
 
   # Auto-implement: add the "claude" label to an issue
   claude-implement:
@@ -58,8 +62,12 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
-          claude_args: |
-            --allowedTools "Edit,Write,Bash,Read,Glob,Grep,LS"
+          settings: |
+            {
+              "permissions": {
+                "allow": ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "LS"]
+              }
+            }
           prompt: |
             Read the CLAUDE.md file for project context and coding conventions.
 
@@ -96,6 +104,12 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          settings: |
+            {
+              "permissions": {
+                "allow": ["Read", "Glob", "Grep", "Bash"]
+              }
+            }
           prompt: |
             Review this PR for:
             - Correctness and potential bugs
@@ -104,5 +118,3 @@ jobs:
             - Whether tests were added/updated as needed
 
             Post a summary comment with your findings.
-          claude_args: |
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
