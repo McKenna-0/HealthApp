@@ -34,6 +34,8 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "@claude"
           track_progress: true
+          claude_args: |
+            --allowedTools "Edit,Write,Bash,Read,Glob,Grep,LS"
 
   # Auto-implement: add the "claude" label to an issue
   claude-implement:
@@ -56,6 +58,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
+          claude_args: |
+            --allowedTools "Edit,Write,Bash,Read,Glob,Grep,LS"
           prompt: |
             Read the CLAUDE.md file for project context and coding conventions.
 
