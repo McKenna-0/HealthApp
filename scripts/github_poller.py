@@ -110,7 +110,7 @@ def git(*args: str) -> subprocess.CompletedProcess:
 def reset_to_main() -> bool:
     """Ensure we're on a clean main branch, ready for the next issue."""
     git("checkout", "main")
-    git("clean", "-fd")
+    git("clean", "-fd", "--exclude=logs")
     git("checkout", ".")
     result = git("pull", "--ff-only")
     if result.returncode != 0:
