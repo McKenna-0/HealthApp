@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Plus, Scale,
-  StickyNote, RefreshCw,
+  StickyNote, RefreshCw, Dumbbell,
 } from 'lucide-react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
-import type { CheckinResponse, FoodLogRow, Meal, MfpStatus, StreakInfo } from '../api/types'
+import type { CheckinResponse, FoodLogRow, Meal, MfpStatus, StreakInfo, Workout } from '../api/types'
 import BottomSheet from '../components/BottomSheet'
 import CalorieDonut from '../components/CalorieDonut'
 import ProgressBar from '../components/ProgressBar'
@@ -572,6 +572,10 @@ export default function LogPage() {
     queryKey: ['mfp-status'],
     queryFn: () => apiGet('/api/mfp/status'),
   })
+  const { data: dailyWorkouts } = useQuery<Workout[]>({
+    queryKey: ['workouts-day', date],
+    queryFn: () => apiGet(`/api/workouts?start=${date}&end=${date}&limit=10`),
+  })
 
   // Mutations
   const deleteFoodMut = useMutation({
@@ -748,6 +752,45 @@ export default function LogPage() {
         </div>
       </div>
       )}
+
+      {/* Exercise log */}
+      <div className="card" style={{ marginTop: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span className="text-title">Exercise</span>
+          <Link to="/workouts" style={{ color: 'var(--accent)', fontSize: '0.8rem', textDecoration: 'none' }}>
+            All workouts
+          </Link>
+        </div>
+        {dailyWorkouts && dailyWorkouts.length > 0 ? (
+          dailyWorkouts.map((w) => (
+            <Link
+              key={w.id}
+              to={`/workouts/${w.id}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}
+            >
+              <Dumbbell size={18} color="var(--accent)" />
+              <div style={{ flex: 1 }}>
+                <div className="text-body" style={{ fontWeight: 500 }}>{w.name ?? w.type}</div>
+                <div className="text-caption">
+                  {w.duration_min != null ? `${Math.round(w.duration_min)}min` : ''}
+                  {w.distance_km ? ` · ${w.distance_km.toFixed(1)} km` : ''}
+                  {w.calories ? ` · ${w.calories} kcal` : ''}
+                </div>
+              </div>
+              <ChevronRight size={16} color="var(--muted)" />
+            </Link>
+          ))
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="text-caption" style={{ color: 'var(--muted)' }}>No workouts logged</span>
+            <Link to="/workouts" style={{ textDecoration: 'none' }}>
+              <button className="secondary" style={{ minHeight: 36, padding: '0 14px', fontSize: '0.8rem' }}>
+                + Start workout
+              </button>
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 8, marginTop: 12, overflowX: 'auto', paddingBottom: 4 }}>
