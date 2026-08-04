@@ -169,23 +169,28 @@ def process_issue(issue: dict) -> bool:
 
     # Run Claude CLI
     prompt = build_prompt(issue)
+    claude_log = REPO_DIR / "logs" / f"claude-issue-{number}.log"
+    log.info("Claude output will be logged to %s", claude_log)
+    comment(number, f"🤖 Poller picked up this issue. Claude is working on it now...")
     try:
         try:
-            result = subprocess.run(
-                ["claude", "-p", "--dangerously-skip-permissions"],
-                input=prompt,
-                capture_output=True,
-                text=True,
-                cwd=str(REPO_DIR),
-                timeout=CLAUDE_TIMEOUT,
-            )
+            with open(claude_log, "w") as clf:
+                result = subprocess.run(
+                    ["claude", "-p", "--dangerously-skip-permissions"],
+                    input=prompt,
+                    stdout=clf,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=str(REPO_DIR),
+                    timeout=CLAUDE_TIMEOUT,
+                )
         except subprocess.TimeoutExpired:
             log.error("Claude timed out on issue #%d", number)
             set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
             comment(number, "⚠️ Claude timed out after 30 minutes.")
             return False
 
-        combined_output = (result.stdout or "") + (result.stderr or "")
+        combined_output = claude_log.read_text(errors="replace")
 
         if result.returncode == 0:
             log.info("Issue #%d completed successfully", number)
