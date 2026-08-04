@@ -265,12 +265,7 @@ function MfpCard() {
           </button>
           {saveCookie.data && (
             <p className="text-caption" style={{ marginTop: 6 }}>
-              {saveCookie.data.valid ? 'Cookie is valid!' : 'Saved, but cookie appears expired — paste a fresh one.'}
-            </p>
-          )}
-          {saveCookie.isError && (
-            <p className="text-caption" style={{ marginTop: 6, color: 'var(--red)' }}>
-              {String(saveCookie.error).replace(/^\d+: /, '').slice(0, 200)}
+              {saveCookie.data.valid ? 'Cookie is valid!' : 'Saved, but cookie may not be valid yet.'}
             </p>
           )}
         </>
@@ -311,11 +306,6 @@ function MfpCard() {
           <button onClick={() => saveCookie.mutate()} disabled={saveCookie.isPending || cookie.length < 10} style={{ width: '100%' }}>
             {saveCookie.isPending ? 'Saving...' : 'Update cookie'}
           </button>
-          {saveCookie.isError && (
-            <p className="text-caption" style={{ marginTop: 6, color: 'var(--red)' }}>
-              {String(saveCookie.error).replace(/^\d+: /, '').slice(0, 200)}
-            </p>
-          )}
         </>
       )}
     </div>
@@ -568,11 +558,6 @@ export default function SettingsPage() {
           <p className="text-caption" style={{ marginTop: 8, marginBottom: 0 }}>
             Last run: {sync.data.status}
             {sync.data.error ? ` — ${sync.data.error}` : ''}
-            {sync.data.status === 'ok' && sync.data.metrics_synced != null && (
-              sync.data.metrics_synced === 0 && sync.data.sleeps_synced === 0 && sync.data.activities_synced === 0 && sync.data.weights_synced === 0
-                ? ' — no data received from Garmin'
-                : ` — ${sync.data.metrics_synced} metrics, ${sync.data.sleeps_synced} sleeps, ${sync.data.activities_synced} activities, ${sync.data.weights_synced} weights`
-            )}
           </p>
         )}
       </div>
@@ -585,7 +570,6 @@ export default function SettingsPage() {
               <th>Started</th>
               <th>Source</th>
               <th>Days</th>
-              <th>Records</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -595,7 +579,6 @@ export default function SettingsPage() {
                 <td>{r.started_at.slice(0, 16).replace('T', ' ')}</td>
                 <td>{r.source}</td>
                 <td>{r.days_requested}</td>
-                <td>{r.metrics_synced != null ? `${r.metrics_synced}/${r.sleeps_synced}/${r.activities_synced}/${r.weights_synced}` : '–'}</td>
                 <td>
                   <span className={`badge ${r.status}`}>{r.status}</span>
                 </td>

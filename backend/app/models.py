@@ -315,10 +315,6 @@ class SyncLog(Base):
     days_requested: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text)  # ok | error
     error: Mapped[str | None] = mapped_column(Text)
-    metrics_synced: Mapped[int | None] = mapped_column(Integer)
-    sleeps_synced: Mapped[int | None] = mapped_column(Integer)
-    activities_synced: Mapped[int | None] = mapped_column(Integer)
-    weights_synced: Mapped[int | None] = mapped_column(Integer)
 
 
 class IntradayBodyBattery(Base):

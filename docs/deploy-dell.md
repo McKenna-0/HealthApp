@@ -21,21 +21,21 @@ ssh conor@100.95.44.32
 
 # Clone the repo (or copy it)
 cd ~
-git clone <your-repo-url> health-app
-cd health-app
+git clone <your-repo-url> "Health app"
+cd "Health app"
 
 # Copy .env from laptop (run from laptop, not Dell)
-# scp "C:/Users/conor/Health app/.env" conor@100.95.44.32:~/health-app/.env
+# scp "C:/Users/conor/Health app/.env" conor@100.95.44.32:"~/Health app/.env"
 
 # Snapshot the database (WAL-safe) — run on whichever machine has the live DB
 cd backend
 uv run python -c "import sqlite3; sqlite3.connect('data/health.db').backup(sqlite3.connect('health-snap.db')); print('snapshot ok')"
 
 # From laptop: copy the snapshot to the Dell
-# scp "C:/Users/conor/Health app/backend/health-snap.db" conor@100.95.44.32:~/health-app/backend/data/health.db
+# scp "C:/Users/conor/Health app/backend/health-snap.db" conor@100.95.44.32:"~/Health app/backend/data/health.db"
 
 # On the Dell: install deps and build
-cd ~/health-app
+cd "~/Health app"
 cd backend && uv sync && cd ..
 cd frontend && npm ci && cd ..
 bash scripts/build_frontend.sh
@@ -51,7 +51,7 @@ Using the startup bat (auto-starts at logon):
 Or start manually:
 
 ```bash
-cd health-app/backend
+cd "Health app/backend"
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -70,11 +70,6 @@ tailscale serve status   # shows https://<dell>.<tailnet>.ts.net
 2. Safari → `https://<dell>.<tailnet>.ts.net`.
 3. Share → **Add to Home Screen** — full PWA with camera/barcode support.
 
-## 5.5. Windows laptop
-
-1. Ensure Tailscale is running on both the Dell and the laptop.
-2. Open `https://<dell>.<tailnet>.ts.net` in any browser on the laptop.
-
 ## 6. Deploying updates
 
 From the **laptop**, run the one-command deploy script:
@@ -90,7 +85,7 @@ Or manually:
 
 ```bash
 ssh conor@100.95.44.32
-cd ~/health-app
+cd "Health app"
 git pull --ff-only
 bash scripts/build_frontend.sh
 cd backend && uv sync
@@ -107,7 +102,5 @@ Schema changes apply automatically on restart (the app adds missing tables/colum
   Both must be on the same tailnet.
 - **Garmin auth broken**: Delete `backend/.garmin_tokens/` on the Dell and restart —
   it re-authenticates using `.env` credentials.
-- **MFP Sync button missing**: The MFP cookie is stored per-database. After deploying
-  to the Dell, visit Settings on the Dell version and configure your MFP cookie there.
 - **Stale PWA on phone**: Kill and reopen the PWA after deploys for service worker refresh.
 - **Build fails on Dell**: Ensure Node.js and uv are installed and on PATH in the SSH session.

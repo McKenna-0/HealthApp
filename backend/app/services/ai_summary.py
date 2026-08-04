@@ -112,15 +112,10 @@ def compose_summary(db: Session, days: int = 30) -> dict:
         if i["status"] == "ok"
     ]
 
-    # macro targets (only numeric settings, not cookies/status strings)
-    _TARGET_KEYS = {
-        "calorie_target", "protein_target_g", "carbs_target_g", "fat_target_g",
-        "protein_target_pct", "carbs_target_pct", "fat_target_pct",
-    }
+    # macro targets
     targets = {
         r.key: (float(r.value) if r.value else None)
         for r in db.scalars(select(models.UserSetting))
-        if r.key in _TARGET_KEYS
     }
 
     return {
