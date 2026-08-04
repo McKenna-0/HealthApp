@@ -104,16 +104,6 @@ export default function Dashboard() {
   })
 
   // series is sorted oldest-first; last entry = today
-  // For each metric, find the most recent day with a non-null value
-  // (today's data is often incomplete — Garmin finalises HR/HRV/sleep overnight)
-  const latestValue = (key: string): { value: number | null; isYesterday: boolean } => {
-    if (!dash?.series) return { value: null, isYesterday: false }
-    for (let i = dash.series.length - 1; i >= 0; i--) {
-      const v = getMetricValue(dash.series[i], key)
-      if (v != null) return { value: v, isYesterday: i < dash.series.length - 1 }
-    }
-    return { value: null, isYesterday: false }
-  }
   const today = dash?.series?.[dash.series.length - 1]
   const avg7 = dash?.averages_7d
   const recentWorkouts = workouts?.slice(0, 3)
@@ -141,8 +131,7 @@ export default function Dashboard() {
           metricsConfig.map(key => {
             const def = METRIC_DEFS[key]
             if (!def) return null
-            const latest = latestValue(key)
-            const val = latest.value
+            const val = getMetricValue(today, key)
             const avgVal = getAvgValue(avg7, key)
             const delta = val != null && avgVal != null ? +(val - avgVal).toFixed(1) : undefined
             const Icon = def.icon
@@ -150,7 +139,7 @@ export default function Dashboard() {
               <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
                 <MetricCard
                   icon={<Icon size={18} />}
-                  label={latest.isYesterday ? `${def.label} ᐩ` : def.label}
+                  label={def.label}
                   value={val != null ? val : null}
                   delta={delta != null ? { value: delta, suffix: def.unit ? ` ${def.unit}` : '' } : undefined}
                   onClick={() => setDrillDown(key)}
@@ -301,7 +290,7 @@ export default function Dashboard() {
           open={!!drillDown}
           onClose={() => setDrillDown(null)}
           title={METRIC_DEFS[drillDown]?.label || drillDown}
-          value={drillDown ? latestValue(drillDown).value?.toString() : undefined}
+          value={today ? getMetricValue(today, drillDown)?.toString() : undefined}
         >
           {drillDown === 'sleep_score' && <SleepDrillDown />}
           {drillDown === 'hrv' && <HrvDrillDown />}
