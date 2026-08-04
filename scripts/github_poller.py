@@ -170,52 +170,52 @@ def process_issue(issue: dict) -> bool:
     # Run Claude CLI
     prompt = build_prompt(issue)
     try:
-        result = subprocess.run(
-            ["claude", "-p", "--dangerously-skip-permissions"],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            cwd=str(REPO_DIR),
-            timeout=CLAUDE_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        log.error("Claude timed out on issue #%d", number)
-        set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
-        comment(number, "⚠️ Claude timed out after 30 minutes.")
-        reset_to_main()
-        return False
-
-    combined_output = (result.stdout or "") + (result.stderr or "")
-
-    if result.returncode == 0:
-        log.info("Issue #%d completed successfully", number)
-        set_labels(number, add=[LABEL_DONE], remove=[LABEL_WIP])
-        # Extract PR URL from output if possible
-        pr_line = ""
-        for line in combined_output.splitlines():
-            if "github.com" in line and "/pull/" in line:
-                pr_line = line.strip()
-                break
-        msg = f"✅ Claude has finished implementing this issue."
-        if pr_line:
-            msg += f"\n\nPR: {pr_line}"
-        comment(number, msg)
-        return True
-    else:
-        # Check for rate limiting
-        if is_rate_limited(combined_output):
-            log.warning("Rate limited on issue #%d — will retry next cycle", number)
-            set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+        try:
+            result = subprocess.run(
+                ["claude", "-p", "--dangerously-skip-permissions"],
+                input=prompt,
+                capture_output=True,
+                text=True,
+                cwd=str(REPO_DIR),
+                timeout=CLAUDE_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            log.error("Claude timed out on issue #%d", number)
+            set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
+            comment(number, "⚠️ Claude timed out after 30 minutes.")
             return False
 
-        log.error("Claude failed on issue #%d (exit %d)", number, result.returncode)
-        # Truncate output for the comment
-        error_snippet = combined_output[-1500:] if len(combined_output) > 1500 else combined_output
-        set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
-        comment(number,
-                f"⚠️ Claude failed to implement this issue (exit code {result.returncode}).\n\n"
-                f"```\n{error_snippet}\n```")
-        return False
+        combined_output = (result.stdout or "") + (result.stderr or "")
+
+        if result.returncode == 0:
+            log.info("Issue #%d completed successfully", number)
+            set_labels(number, add=[LABEL_DONE], remove=[LABEL_WIP])
+            # Extract PR URL from output if possible
+            pr_line = ""
+            for line in combined_output.splitlines():
+                if "github.com" in line and "/pull/" in line:
+                    pr_line = line.strip()
+                    break
+            msg = f"✅ Claude has finished implementing this issue."
+            if pr_line:
+                msg += f"\n\nPR: {pr_line}"
+            comment(number, msg)
+            return True
+        else:
+            # Check for rate limiting
+            if is_rate_limited(combined_output):
+                log.warning("Rate limited on issue #%d — will retry next cycle", number)
+                set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+                return False
+
+            log.error("Claude failed on issue #%d (exit %d)", number, result.returncode)
+            # Truncate output for the comment
+            error_snippet = combined_output[-1500:] if len(combined_output) > 1500 else combined_output
+            set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
+            comment(number,
+                    f"⚠️ Claude failed to implement this issue (exit code {result.returncode}).\n\n"
+                    f"```\n{error_snippet}\n```")
+            return False
     finally:
         reset_to_main()
 
