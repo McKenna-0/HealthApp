@@ -43,7 +43,7 @@ def map_daily_metrics(day: date, stats: dict, hrv: dict | None) -> DailyMetricsD
     total = _get(stats, "totalKilocalories")
     bmr = _get(stats, "bmrKilocalories")
     active = _get(stats, "activeKilocalories")
-    return DailyMetricsDTO(
+    dto = DailyMetricsDTO(
         date=day,
         steps=_get(stats, "totalSteps"),
         resting_hr=_get(stats, "restingHeartRate"),
@@ -56,6 +56,12 @@ def map_daily_metrics(day: date, stats: dict, hrv: dict | None) -> DailyMetricsD
         calories_bmr=int(bmr) if bmr is not None else None,
         calories_active=int(active) if active is not None else None,
     )
+    if dto.steps is None and dto.resting_hr is None and dto.stress_avg is None and total is None:
+        logger.warning(
+            "Day %s: get_stats returned data but no recognized fields. Keys: %s",
+            day, list(stats.keys())[:20],
+        )
+    return dto
 
 
 def map_sleep(day: date, data: dict) -> SleepDTO | None:
@@ -303,25 +309,37 @@ class GarminSource(DataSource):
         return self._client
 
     def fetch_daily_metrics(self, day: date) -> DailyMetricsDTO | None:
-        g = self._garmin()
-        iso = day.isoformat()
-        stats = g.get_stats(iso)
-        if not stats:
-            return None
         try:
-            hrv = g.get_hrv_data(iso)
+            g = self._garmin()
+            iso = day.isoformat()
+            stats = g.get_stats(iso)
+            if not stats:
+                return None
+            try:
+                hrv = g.get_hrv_data(iso)
+            except Exception:
+                logger.warning("HRV fetch failed for %s", iso, exc_info=True)
+                hrv = None
+            return map_daily_metrics(day, stats, hrv)
         except Exception:
-            logger.warning("HRV fetch failed for %s", iso, exc_info=True)
-            hrv = None
-        return map_daily_metrics(day, stats, hrv)
+            logger.warning("Daily metrics fetch failed for %s", day.isoformat(), exc_info=True)
+            return None
 
     def fetch_sleep(self, day: date) -> SleepDTO | None:
-        data = self._garmin().get_sleep_data(day.isoformat())
-        return map_sleep(day, data) if data else None
+        try:
+            data = self._garmin().get_sleep_data(day.isoformat())
+            return map_sleep(day, data) if data else None
+        except Exception:
+            logger.warning("Sleep fetch failed for %s", day.isoformat(), exc_info=True)
+            return None
 
     def fetch_activities(self, start: date, end: date) -> list[ActivityDTO]:
-        raw = self._garmin().get_activities_by_date(start.isoformat(), end.isoformat())
-        return [dto for a in raw or [] if (dto := map_activity(a))]
+        try:
+            raw = self._garmin().get_activities_by_date(start.isoformat(), end.isoformat())
+            return [dto for a in raw or [] if (dto := map_activity(a))]
+        except Exception:
+            logger.warning("Activities fetch failed for %s to %s", start.isoformat(), end.isoformat(), exc_info=True)
+            return []
 
     def fetch_activity_laps(self, external_id: str) -> list[LapDTO]:
         try:
@@ -365,10 +383,14 @@ class GarminSource(DataSource):
         return ActivityTimeSeriesDTO(points=points) if points else None
 
     def fetch_weight(self, start: date, end: date) -> list[WeightDTO]:
-        raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())
-        entries = []
-        for group in _get(raw, "dailyWeightSummaries", default=[]) or []:
-            for m in group.get("allWeightMetrics", []) or []:
-                if dto := map_weight(m):
-                    entries.append(dto)
-        return entries
+        try:
+            raw = self._garmin().get_weigh_ins(start.isoformat(), end.isoformat())
+            entries = []
+            for group in _get(raw, "dailyWeightSummaries", default=[]) or []:
+                for m in group.get("allWeightMetrics", []) or []:
+                    if dto := map_weight(m):
+                        entries.append(dto)
+            return entries
+        except Exception:
+            logger.warning("Weight fetch failed for %s to %s", start.isoformat(), end.isoformat(), exc_info=True)
+            return []
