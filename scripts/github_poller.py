@@ -30,6 +30,8 @@ LABEL_WIP = "claude-wip"
 LABEL_DONE = "claude-done"
 LABEL_FAILED = "claude-failed"
 
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
+
 RATE_LIMIT_HINTS = ["rate limit", "usage limit", "capacity", "try again later",
                     "too many requests", "throttl"]
 
@@ -176,7 +178,7 @@ def process_issue(issue: dict) -> bool:
         try:
             with open(claude_log, "w") as clf:
                 result = subprocess.run(
-                    ["claude", "-p", "--dangerously-skip-permissions"],
+                    [CLAUDE_BIN, "-p", "--dangerously-skip-permissions"],
                     input=prompt,
                     stdout=clf,
                     stderr=subprocess.STDOUT,
