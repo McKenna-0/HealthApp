@@ -31,6 +31,7 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
         days_requested=(end - start).days + 1,
         status="ok",
     )
+    n_metrics = n_sleeps = n_activities = n_weights = 0
     try:
         day = start
         while day <= end:
@@ -39,11 +40,13 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
                 vals["date"] = metrics.date.isoformat()
                 vals.update(source=source.name, synced_at=iso_now())
                 _upsert(db, models.DailyMetrics, vals, ["date"])
+                n_metrics += 1
             if sleep := source.fetch_sleep(day):
                 vals = asdict(sleep)
                 vals["date"] = sleep.date.isoformat()
                 vals.update(source=source.name, synced_at=iso_now())
                 _upsert(db, models.Sleep, vals, ["date"])
+                n_sleeps += 1
             for bb in source.fetch_intraday_body_battery(day):
                 _upsert(db, models.IntradayBodyBattery, {
                     "date": bb.date.isoformat(),
@@ -60,17 +63,20 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
                 }, ["date", "timestamp"])
             day += timedelta(days=1)
 
-        for act in source.fetch_activities(start, end):
+        activities = source.fetch_activities(start, end)
+        for act in activities:
             vals = asdict(act)
             vals["date"] = act.date.isoformat()
             vals.update(source=source.name, synced_at=iso_now())
             _upsert(db, models.Activity, vals, ["external_id"])
+        n_activities = len(activities)
 
         from . import sessions
 
         sessions.auto_link_new_activities(db)
 
-        for w in source.fetch_weight(start, end):
+        weights = source.fetch_weight(start, end)
+        for w in weights:
             _upsert(
                 db,
                 models.WeightLog,
@@ -83,6 +89,7 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
                 },
                 ["date", "source"],
             )
+        n_weights = len(weights)
     except Exception as exc:  # noqa: BLE001 - sync must never crash the app
         logger.exception("Sync failed")
         db.rollback()
@@ -90,6 +97,10 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
         log.error = f"{type(exc).__name__}: {exc}"
 
     log.finished_at = iso_now()
+    log.metrics_synced = n_metrics
+    log.sleeps_synced = n_sleeps
+    log.activities_synced = n_activities
+    log.weights_synced = n_weights
     db.add(log)
     db.commit()
     return log

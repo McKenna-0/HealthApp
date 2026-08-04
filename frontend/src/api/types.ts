@@ -196,6 +196,10 @@ export interface SyncLogRow {
   days_requested: number
   status: string
   error: string | null
+  metrics_synced: number | null
+  sleeps_synced: number | null
+  activities_synced: number | null
+  weights_synced: number | null
 }
 
 export interface SyncStatus {

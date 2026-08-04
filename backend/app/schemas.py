@@ -392,6 +392,10 @@ class SyncLogOut(ORMModel):
     days_requested: int
     status: str
     error: str | None
+    metrics_synced: int | None = None
+    sleeps_synced: int | None = None
+    activities_synced: int | None = None
+    weights_synced: int | None = None
 
 
 class SyncStatusOut(BaseModel):
