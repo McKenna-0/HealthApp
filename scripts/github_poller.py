@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ LABEL_FAILED = "claude-failed"
 LABEL_WAITING = "claude-waiting"
 
 MAX_CONVERSATION_TURNS = 5
+RETRY_COOLDOWN_HOURS = 2
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
 
@@ -84,6 +85,33 @@ def cleanup_issue_state(issue_key: str) -> None:
 
 def session_id_for_issue(issue_number: int) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{REPO}#{issue_number}"))
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def set_retry_cooldown(state: dict, issue_key: str) -> None:
+    """Set a cooldown so the poller skips this issue until usage refreshes."""
+    retry_at = datetime.now(timezone.utc) + timedelta(hours=RETRY_COOLDOWN_HOURS)
+    if issue_key not in state:
+        state[issue_key] = {"session_id": session_id_for_issue(int(issue_key)), "turn_count": 0}
+    state[issue_key]["retry_after"] = retry_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    save_state(state)
+
+
+def is_on_cooldown(state: dict, issue_key: str) -> bool:
+    """Check if an issue is still in its retry cooldown period."""
+    issue_state = state.get(issue_key, {})
+    retry_after = issue_state.get("retry_after")
+    if not retry_after:
+        return False
+    if retry_after > _now_iso():
+        return True
+    # Cooldown expired — clear it
+    issue_state.pop("retry_after", None)
+    save_state(state)
+    return False
 
 
 # ── GitHub helpers (via gh CLI) ────────────────────────────────────────────
@@ -335,10 +363,16 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
                     timeout=CLAUDE_TIMEOUT,
                 )
         except subprocess.TimeoutExpired:
-            log.error("Claude timed out on issue #%d", number)
-            set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
-            comment(number, "Claude timed out after 30 minutes.")
-            cleanup_issue_state(issue_key)
+            log.warning("Claude timed out on issue #%d — will retry after cooldown", number)
+            issue_state["turn_count"] -= 1
+            if resume_text is not None:
+                set_labels(number, add=[LABEL_WAITING], remove=[LABEL_WIP])
+            else:
+                set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+            set_retry_cooldown(state, issue_key)
+            comment(number,
+                    f"Claude timed out (likely rate limited). "
+                    f"Will auto-retry in ~{RETRY_COOLDOWN_HOURS} hours.")
             return False
 
         combined_output = claude_log.read_text(errors="replace")
@@ -346,14 +380,13 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
         # Non-zero exit code
         if result.returncode != 0:
             if is_rate_limited(combined_output):
-                log.warning("Rate limited on issue #%d — will retry", number)
+                log.warning("Rate limited on issue #%d — will retry after cooldown", number)
+                issue_state["turn_count"] -= 1
                 if resume_text is not None:
-                    # Revert to waiting so we don't lose conversation context
                     set_labels(number, add=[LABEL_WAITING], remove=[LABEL_WIP])
-                    issue_state["turn_count"] -= 1
-                    save_state(state)
                 else:
                     set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+                set_retry_cooldown(state, issue_key)
                 return False
 
             log.error("Claude failed on issue #%d (exit %d)", number, result.returncode)
@@ -403,6 +436,10 @@ def check_waiting_issues() -> None:
         issue_key = str(number)
         issue_state = state.get(issue_key)
 
+        if is_on_cooldown(state, issue_key):
+            log.info("Skipping waiting issue #%d — on cooldown", number)
+            continue
+
         if not issue_state or "waiting_since" not in issue_state:
             log.warning("Issue #%d is claude-waiting but has no state — re-queuing", number)
             set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WAITING])
@@ -443,8 +480,13 @@ def main() -> None:
         try:
             issues = get_issues_with_label(LABEL_TRIGGER)
             if issues:
-                log.info("Found %d issue(s) to process", len(issues))
+                state = load_state()
                 for issue in issues:
+                    issue_key = str(issue["number"])
+                    if is_on_cooldown(state, issue_key):
+                        log.info("Skipping issue #%s — on cooldown until %s",
+                                 issue_key, state[issue_key].get("retry_after"))
+                        continue
                     process_issue(issue)
             else:
                 log.debug("No issues to process")
