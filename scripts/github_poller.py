@@ -371,7 +371,11 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
         proc.stdin.close()
 
         # Poll for completion with stall detection
+        # Claude -p writes stdout only at the end; check session JSONL for activity
+        session_jsonl = Path.home() / ".claude" / "projects" / "-home-conor-health-app" / f"{sid}.jsonl"
         start = time.monotonic()
+        last_activity = start
+        last_session_size = session_jsonl.stat().st_size if session_jsonl.exists() else 0
         stalled = False
         while proc.poll() is None:
             elapsed = time.monotonic() - start
@@ -381,9 +385,13 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
                 proc.wait()
                 stalled = True
                 break
-            log_size = claude_log.stat().st_size if claude_log.exists() else 0
-            if log_size == 0 and elapsed > STALL_TIMEOUT:
-                log.warning("Claude stalled (0 output after %ds) on issue #%d", int(elapsed), number)
+            cur_size = session_jsonl.stat().st_size if session_jsonl.exists() else 0
+            if cur_size > last_session_size:
+                last_activity = time.monotonic()
+                last_session_size = cur_size
+            idle = time.monotonic() - last_activity
+            if idle > STALL_TIMEOUT:
+                log.warning("Claude stalled (no session activity for %ds) on issue #%d", int(idle), number)
                 proc.kill()
                 proc.wait()
                 stalled = True
