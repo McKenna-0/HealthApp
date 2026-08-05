@@ -295,6 +295,17 @@ def dashboard(db: Session, end: str, days: int = 30) -> dict:
     trend = ewma_trend(weights, day_list)
     balance = {b["date"]: b for b in energy_balance(db, start, end)}
 
+    # Most recently synced intraday body battery reading per day (falls back to
+    # the daily high when no intraday data exists yet), instead of always
+    # showing the day's historical peak as if it were the live reading.
+    bb_current: dict[str, int] = {}
+    for row in db.scalars(
+        select(models.IntradayBodyBattery)
+        .where(models.IntradayBodyBattery.date >= start, models.IntradayBodyBattery.date <= end)
+        .order_by(models.IntradayBodyBattery.date, models.IntradayBodyBattery.timestamp)
+    ):
+        bb_current[row.date] = row.body_battery
+
     steps = [metrics[d].steps if d in metrics else None for d in day_list]
     rhr = [metrics[d].resting_hr if d in metrics else None for d in day_list]
     hrv = [metrics[d].hrv_last_night_avg if d in metrics else None for d in day_list]
@@ -315,6 +326,7 @@ def dashboard(db: Session, end: str, days: int = 30) -> dict:
                 "hrv": hrv[i],
                 "stress_avg": m.stress_avg if m else None,
                 "body_battery_high": m.body_battery_high if m else None,
+                "body_battery_current": bb_current.get(d, m.body_battery_high if m else None),
                 "sleep_score": scores[i],
                 "sleep_duration_min": s.duration_min if s else None,
                 "weight": weights.get(d),
@@ -342,3 +354,70 @@ def dashboard(db: Session, end: str, days: int = 30) -> dict:
         "tdee": estimate_tdee(db, end),
         "readiness": readiness(db, end),
     }
+
+
+# ---- body battery factors -------------------------------------------------------
+
+
+def body_battery_factors(db: Session, day: str) -> list[dict]:
+    """Derives "what changed your battery" entries (e.g. "Sleep +52",
+    "Evening Run -14") from the intraday body-battery curve plus the day's
+    sleep/activity windows — no dependency on Garmin's undocumented body
+    battery "events" endpoint, just the intraday readings we already trust."""
+    from datetime import datetime as _dt
+
+    prev = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    rows = db.scalars(
+        select(models.IntradayBodyBattery)
+        .where(models.IntradayBodyBattery.date.in_([prev, day]))
+        .order_by(models.IntradayBodyBattery.date, models.IntradayBodyBattery.timestamp)
+    ).all()
+    if not rows:
+        return []
+    points = [(_dt.fromisoformat(f"{r.date}T{r.timestamp}"), r.body_battery) for r in rows]
+
+    def value_near(ts_iso: str | None) -> int | None:
+        if not ts_iso:
+            return None
+        try:
+            target = _dt.fromisoformat(ts_iso[:19])
+        except ValueError:
+            return None
+        best_dt, best_val = min(points, key=lambda p: abs((p[0] - target).total_seconds()))
+        if abs((best_dt - target).total_seconds()) > 90 * 60:
+            return None
+        return best_val
+
+    factors: list[dict] = []
+
+    sleep_row = db.get(models.Sleep, day)
+    if sleep_row and sleep_row.start_ts and sleep_row.end_ts:
+        v_start, v_end = value_near(sleep_row.start_ts), value_near(sleep_row.end_ts)
+        if v_start is not None and v_end is not None and v_end != v_start:
+            factors.append({
+                "type": "sleep",
+                "label": "Sleep",
+                "start_ts": sleep_row.start_ts,
+                "end_ts": sleep_row.end_ts,
+                "impact": v_end - v_start,
+            })
+
+    activities = db.scalars(select(models.Activity).where(models.Activity.date == day)).all()
+    for a in activities:
+        if not a.start_ts or not a.duration_min:
+            continue
+        try:
+            end_dt = _dt.fromisoformat(a.start_ts[:19]) + timedelta(minutes=a.duration_min)
+        except ValueError:
+            continue
+        v_start, v_end = value_near(a.start_ts), value_near(end_dt.isoformat())
+        if v_start is not None and v_end is not None and v_end != v_start:
+            factors.append({
+                "type": "activity",
+                "label": a.name or (a.type or "Activity").replace("_", " ").title(),
+                "start_ts": a.start_ts,
+                "end_ts": end_dt.isoformat(timespec="seconds"),
+                "impact": v_end - v_start,
+            })
+
+    return sorted(factors, key=lambda f: f["start_ts"])

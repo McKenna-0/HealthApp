@@ -16,7 +16,16 @@ import random
 from datetime import date, datetime, time, timedelta
 
 from ..timeutil import tzinfo
-from .base import ActivityDTO, ActivityTimeSeriesDTO, DailyMetricsDTO, DataSource, SleepDTO, WeightDTO
+from .base import (
+    ActivityDTO,
+    ActivityTimeSeriesDTO,
+    DailyMetricsDTO,
+    DataSource,
+    IntradayBodyBatteryDTO,
+    IntradayStressDTO,
+    SleepDTO,
+    WeightDTO,
+)
 
 ANCHOR = date(2026, 1, 1)
 BASE_WEIGHT_KG = 82.0
@@ -24,6 +33,10 @@ WEIGHT_SLOPE_KG_PER_DAY = -0.045
 BASE_BMR = 1750
 BASE_HRV = 55.0
 BASE_RHR = 52
+
+
+def _clip(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
 
 
 class MockSource(DataSource):
@@ -187,6 +200,96 @@ class MockSource(DataSource):
         while d <= end:
             out.extend(self._activities_for(d))
             d += timedelta(days=1)
+        return out
+
+    def _minute_of_day(self, iso_ts: str, day: date) -> float:
+        dt = datetime.fromisoformat(iso_ts)
+        delta = dt - datetime.combine(day, time(0, 0), dt.tzinfo)
+        return delta.total_seconds() / 60
+
+    def _day_windows(self, day: date) -> tuple[float, float, list[tuple[float, float]]]:
+        """Returns (wake_minute, bedtime_minute, activity_windows) for `day`,
+        in minutes since local midnight, used to shape the intraday curves."""
+        sleep_today = self.fetch_sleep(day)  # wake this morning
+        sleep_tonight = self.fetch_sleep(day + timedelta(days=1))  # bedtime tonight
+        wake_min = (
+            _clip(self._minute_of_day(sleep_today.end_ts, day), 0, 1439)
+            if sleep_today and sleep_today.end_ts
+            else 420
+        )
+        bedtime_min = (
+            _clip(self._minute_of_day(sleep_tonight.start_ts, day), 0, 1439)
+            if sleep_tonight and sleep_tonight.start_ts
+            else 1380
+        )
+        if bedtime_min <= wake_min:
+            bedtime_min = min(1439, wake_min + 600)
+        act_windows = []
+        for a in self._activities_for(day):
+            if not a.start_ts or not a.duration_min:
+                continue
+            start_min = self._minute_of_day(a.start_ts, day)
+            act_windows.append((start_min, start_min + a.duration_min))
+        return wake_min, bedtime_min, act_windows
+
+    def fetch_intraday_body_battery(self, day: date) -> list[IntradayBodyBatteryDTO]:
+        metrics = self.fetch_daily_metrics(day)
+        wake_min, bedtime_min, act_windows = self._day_windows(day)
+        bb_high = (metrics.body_battery_high if metrics else None) or 80
+        bb_low = (metrics.body_battery_low if metrics else None) or 25
+        r = self._rng(day, "bb_curve")
+
+        out = []
+        for i in range(144):  # every 10 minutes
+            minute = i * 10
+            ts_str = (datetime.combine(day, time(0, 0), tzinfo()) + timedelta(minutes=minute)).strftime("%H:%M")
+
+            if minute < wake_min:
+                # overnight recharge, ramping up to bb_high by wake time
+                frac = minute / wake_min if wake_min else 1
+                level = bb_low + frac * (bb_high - bb_low)
+            elif minute < bedtime_min:
+                # daytime drain from bb_high down to bb_low by bedtime
+                frac = (minute - wake_min) / (bedtime_min - wake_min)
+                level = bb_high - frac * (bb_high - bb_low)
+                for a_start, a_end in act_windows:
+                    if a_start <= minute <= a_end + 30:
+                        dip = 15 if minute <= a_end else 15 * max(0, 1 - (minute - a_end) / 30)
+                        level -= dip
+            else:
+                # partial evening recharge after bedtime
+                frac = (minute - bedtime_min) / max(1, 1440 - bedtime_min)
+                level = bb_low + frac * 0.4 * (bb_high - bb_low)
+
+            level += r.gauss(0, 2)
+            if r.random() < 0.03:
+                continue  # simulate real-world unmeasurable gaps
+            out.append(
+                IntradayBodyBatteryDTO(date=day, timestamp=ts_str, body_battery=int(round(_clip(level, 0, 100))))
+            )
+        return out
+
+    def fetch_intraday_stress(self, day: date) -> list[IntradayStressDTO]:
+        metrics = self.fetch_daily_metrics(day)
+        wake_min, bedtime_min, act_windows = self._day_windows(day)
+        stress_avg = (metrics.stress_avg if metrics else None) or 30
+        r = self._rng(day, "stress_curve")
+
+        out = []
+        for i in range(144):
+            minute = i * 10
+            ts_str = (datetime.combine(day, time(0, 0), tzinfo()) + timedelta(minutes=minute)).strftime("%H:%M")
+
+            if minute < wake_min or minute >= bedtime_min:
+                level = r.gauss(15, 6)
+            elif any(a_start <= minute <= a_end for a_start, a_end in act_windows):
+                level = r.gauss(72, 10)
+            else:
+                level = r.gauss(stress_avg, 12)
+
+            out.append(
+                IntradayStressDTO(date=day, timestamp=ts_str, stress_level=int(round(_clip(level, 0, 100))))
+            )
         return out
 
     def true_weight(self, day: date) -> float:

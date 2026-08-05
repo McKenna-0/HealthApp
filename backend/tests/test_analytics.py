@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import models
 from app.db import Base
-from app.services.analytics import ewma_trend, ols_slope, readiness
+from app.services.analytics import body_battery_factors, ewma_trend, ols_slope, readiness
 
 
 def test_ols_slope_exact():
@@ -91,3 +91,44 @@ def test_ewma_carries_through_gaps():
     assert trend[days[4]] == 80.0  # gap carries forward
     assert trend[days[5]] < 80.0
     assert len(trend) == 10
+
+
+def test_body_battery_factors_sleep_and_activity(db):
+    day = "2026-07-05"
+    prev = "2026-07-04"
+    db.add(models.Sleep(
+        date=day,
+        start_ts=f"{prev}T23:00:00",
+        end_ts=f"{day}T07:00:00",
+        source="mock",
+        synced_at="x",
+    ))
+    db.add(models.Activity(
+        external_id="test-run",
+        date=day,
+        start_ts=f"{day}T18:00:00",
+        type="running",
+        name="Evening Run",
+        duration_min=30,
+        source="mock",
+        synced_at="x",
+    ))
+    db.add(models.IntradayBodyBattery(date=prev, timestamp="23:00", body_battery=20, source="mock"))
+    db.add(models.IntradayBodyBattery(date=day, timestamp="07:00", body_battery=90, source="mock"))
+    db.add(models.IntradayBodyBattery(date=day, timestamp="18:00", body_battery=60, source="mock"))
+    db.add(models.IntradayBodyBattery(date=day, timestamp="18:30", body_battery=45, source="mock"))
+    db.commit()
+
+    factors = body_battery_factors(db, day)
+    assert {f["type"] for f in factors} == {"sleep", "activity"}
+
+    sleep_f = next(f for f in factors if f["type"] == "sleep")
+    assert sleep_f["impact"] == 70
+
+    act_f = next(f for f in factors if f["type"] == "activity")
+    assert act_f["impact"] == -15
+    assert act_f["label"] == "Evening Run"
+
+
+def test_body_battery_factors_empty_without_intraday_data(db):
+    assert body_battery_factors(db, "2026-07-05") == []

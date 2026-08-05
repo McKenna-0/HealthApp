@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
+from ..services import analytics
 
 router = APIRouter(prefix="/api", tags=["metrics"])
 
@@ -58,3 +59,8 @@ def intraday_stress(date: str = Query(...), db: Session = Depends(get_db)):
         .order_by(models.IntradayStress.timestamp)
     ).all()
     return rows
+
+
+@router.get("/metrics/body-battery/factors", response_model=list[schemas.BodyBatteryFactorOut])
+def body_battery_factors(date: str = Query(...), db: Session = Depends(get_db)):
+    return analytics.body_battery_factors(db, date)
