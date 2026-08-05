@@ -5,6 +5,9 @@ Runs as a standalone background process on the Dell server. Uses the Claude
 Code CLI (subscription-based, no API key needed) to automatically implement
 features and fix bugs described in GitHub issues.
 
+Supports multi-turn conversations: when Claude needs clarification, it posts
+a comment on the issue and waits for the user to reply via GitHub mobile.
+
 Usage:
     python scripts/github_poller.py          # run in foreground
     nohup python scripts/github_poller.py >> logs/poller.log 2>&1 &  # background
@@ -16,6 +19,8 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -29,11 +34,16 @@ LABEL_TRIGGER = "claude"
 LABEL_WIP = "claude-wip"
 LABEL_DONE = "claude-done"
 LABEL_FAILED = "claude-failed"
+LABEL_WAITING = "claude-waiting"
+
+MAX_CONVERSATION_TURNS = 5
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
 
 RATE_LIMIT_HINTS = ["rate limit", "usage limit", "capacity", "try again later",
                     "too many requests", "throttl"]
+
+STATE_FILE = REPO_DIR / "logs" / "conversation_state.json"
 
 # ── Logging ────────────────────────────────────────────────────────────────
 
@@ -49,6 +59,31 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("github-poller")
+
+
+# ── State persistence ─────────────────────────────────────────────────────
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            log.warning("Corrupt state file, starting fresh")
+    return {}
+
+
+def save_state(state: dict) -> None:
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def cleanup_issue_state(issue_key: str) -> None:
+    state = load_state()
+    state.pop(issue_key, None)
+    save_state(state)
+
+
+def session_id_for_issue(issue_number: int) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{REPO}#{issue_number}"))
 
 
 # ── GitHub helpers (via gh CLI) ────────────────────────────────────────────
@@ -100,6 +135,69 @@ def comment(issue: int, body: str) -> None:
         log.warning("Comment failed on #%d: %s", issue, result.stderr.strip())
 
 
+def _get_bot_login() -> str:
+    if not hasattr(_get_bot_login, "_cached"):
+        result = gh("api", "/user", "--jq", ".login")
+        _get_bot_login._cached = result.stdout.strip() if result.returncode == 0 else ""
+    return _get_bot_login._cached
+
+
+def get_user_replies(issue_number: int, after_timestamp: str) -> list[str]:
+    """Get user comment bodies posted after the given ISO timestamp."""
+    result = gh(
+        "issue", "view", str(issue_number),
+        "--repo", REPO,
+        "--json", "comments",
+    )
+    if result.returncode != 0:
+        return []
+    try:
+        comments = json.loads(result.stdout).get("comments", [])
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+    bot_login = _get_bot_login()
+    replies = []
+    for c in comments:
+        author = c.get("author", {}).get("login", "")
+        created = c.get("createdAt", "")
+        if author != bot_login and created > after_timestamp:
+            replies.append(c.get("body", ""))
+    return replies
+
+
+# ── Work detection ─────────────────────────────────────────────────────────
+
+def detect_pr_created(issue_number: int) -> str | None:
+    """Check if an open PR exists for this issue's branch. Returns URL or None."""
+    result = gh(
+        "pr", "list",
+        "--repo", REPO,
+        "--head", f"claude/issue-{issue_number}",
+        "--json", "url",
+        "--state", "open",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        prs = json.loads(result.stdout)
+        return prs[0]["url"] if prs else None
+    except (json.JSONDecodeError, IndexError, KeyError):
+        return None
+
+
+def detect_commits_on_branch(issue_number: int) -> bool:
+    """Check if the claude branch has commits beyond main."""
+    branch = f"claude/issue-{issue_number}"
+    result = git("rev-list", "--count", f"main..{branch}")
+    if result.returncode != 0:
+        return False
+    try:
+        return int(result.stdout.strip()) > 0
+    except ValueError:
+        return False
+
+
 # ── Git helpers ────────────────────────────────────────────────────────────
 
 def git(*args: str) -> subprocess.CompletedProcess:
@@ -143,6 +241,9 @@ Implement this issue:
 6. Commit your changes with a descriptive message referencing issue #{number}
 7. Push the branch and create a pull request linking to issue #{number}
 
+Do not ask clarifying questions. Make your best judgment and proceed.
+If you need to document an assumption, do so in the PR description.
+
 Tech stack: FastAPI + SQLAlchemy/SQLite backend, React 19 + TypeScript + Vite frontend.
 Python managed with uv. Frontend uses React Query, Recharts, date-fns.
 """
@@ -154,31 +255,78 @@ def is_rate_limited(output: str) -> bool:
     return any(hint in lower for hint in RATE_LIMIT_HINTS)
 
 
-def process_issue(issue: dict) -> bool:
+def enter_waiting_state(issue_number: int, claude_output: str,
+                        state: dict, issue_key: str) -> None:
+    """Post Claude's question as a comment and park the issue."""
+    set_labels(issue_number, add=[LABEL_WAITING], remove=[LABEL_WIP])
+
+    output_tail = claude_output[-2000:] if len(claude_output) > 2000 else claude_output
+    body = (
+        "Claude needs more information before proceeding. "
+        "Reply to this issue with your answer and the poller will resume automatically.\n\n"
+        f"**Claude's response:**\n\n{output_tail}"
+    )
+    comment(issue_number, body)
+
+    state[issue_key]["waiting_since"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    save_state(state)
+    log.info("Issue #%d entered waiting state", issue_number)
+
+
+def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
     """Process a single GitHub issue. Returns True on success."""
     number = issue["number"]
     title = issue["title"]
-    log.info("Processing issue #%d: %s", number, title)
+    issue_key = str(number)
+    log.info("Processing issue #%d: %s (resume=%s)", number, title, resume_text is not None)
 
-    # Mark as work-in-progress
-    set_labels(number, add=[LABEL_WIP], remove=[LABEL_TRIGGER])
+    # Load/init conversation state
+    state = load_state()
+    sid = session_id_for_issue(number)
+    if issue_key not in state:
+        state[issue_key] = {"session_id": sid, "turn_count": 0}
+    issue_state = state[issue_key]
+    issue_state["turn_count"] += 1
+    save_state(state)
+
+    # Enforce max turns
+    if issue_state["turn_count"] > MAX_CONVERSATION_TURNS:
+        set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
+        comment(number, f"Gave up after {MAX_CONVERSATION_TURNS} conversation turns without a PR.")
+        cleanup_issue_state(issue_key)
+        return False
+
+    # Mark as work-in-progress (may already be WIP from check_waiting_issues)
+    set_labels(number, add=[LABEL_WIP], remove=[LABEL_TRIGGER, LABEL_WAITING])
 
     # Clean working tree
     if not reset_to_main():
         set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
-        comment(number, "⚠️ Poller failed: could not reset to clean main branch.")
+        comment(number, "Poller failed: could not reset to clean main branch.")
+        cleanup_issue_state(issue_key)
         return False
 
+    # Build command and prompt
+    if resume_text is not None:
+        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--resume", sid]
+        prompt = f"User reply:\n\n{resume_text}\n\nContinue implementing the issue."
+        comment(number, f"Resuming with your reply (turn {issue_state['turn_count']})...")
+    else:
+        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--session-id", sid]
+        prompt = build_prompt(issue)
+        comment(number, "Poller picked up this issue. Claude is working on it now...")
+
     # Run Claude CLI
-    prompt = build_prompt(issue)
     claude_log = REPO_DIR / "logs" / f"claude-issue-{number}.log"
-    log.info("Claude output will be logged to %s", claude_log)
-    comment(number, f"🤖 Poller picked up this issue. Claude is working on it now...")
+    log.info("Claude output → %s", claude_log)
     try:
         try:
-            with open(claude_log, "w") as clf:
+            mode = "a" if resume_text else "w"
+            with open(claude_log, mode) as clf:
+                if resume_text:
+                    clf.write(f"\n\n{'='*60}\nRESUMED TURN {issue_state['turn_count']}\n{'='*60}\n\n")
                 result = subprocess.run(
-                    [CLAUDE_BIN, "-p", "--dangerously-skip-permissions"],
+                    claude_cmd,
                     input=prompt,
                     stdout=clf,
                     stderr=subprocess.STDOUT,
@@ -189,50 +337,98 @@ def process_issue(issue: dict) -> bool:
         except subprocess.TimeoutExpired:
             log.error("Claude timed out on issue #%d", number)
             set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
-            comment(number, "⚠️ Claude timed out after 30 minutes.")
+            comment(number, "Claude timed out after 30 minutes.")
+            cleanup_issue_state(issue_key)
             return False
 
         combined_output = claude_log.read_text(errors="replace")
 
-        if result.returncode == 0:
-            log.info("Issue #%d completed successfully", number)
-            set_labels(number, add=[LABEL_DONE], remove=[LABEL_WIP])
-            # Extract PR URL from output if possible
-            pr_line = ""
-            for line in combined_output.splitlines():
-                if "github.com" in line and "/pull/" in line:
-                    pr_line = line.strip()
-                    break
-            msg = f"✅ Claude has finished implementing this issue."
-            if pr_line:
-                msg += f"\n\nPR: {pr_line}"
-            comment(number, msg)
-            return True
-        else:
-            # Check for rate limiting
+        # Non-zero exit code
+        if result.returncode != 0:
             if is_rate_limited(combined_output):
-                log.warning("Rate limited on issue #%d — will retry next cycle", number)
-                set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+                log.warning("Rate limited on issue #%d — will retry", number)
+                if resume_text is not None:
+                    # Revert to waiting so we don't lose conversation context
+                    set_labels(number, add=[LABEL_WAITING], remove=[LABEL_WIP])
+                    issue_state["turn_count"] -= 1
+                    save_state(state)
+                else:
+                    set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
                 return False
 
             log.error("Claude failed on issue #%d (exit %d)", number, result.returncode)
-            # Truncate output for the comment
             error_snippet = combined_output[-1500:] if len(combined_output) > 1500 else combined_output
             set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
             comment(number,
-                    f"⚠️ Claude failed to implement this issue (exit code {result.returncode}).\n\n"
+                    f"Claude failed (exit code {result.returncode}).\n\n"
                     f"```\n{error_snippet}\n```")
+            cleanup_issue_state(issue_key)
+            return False
+
+        # Exit code 0 — check if real work was done
+        pr_url = detect_pr_created(number)
+        if pr_url is None:
+            for line in combined_output.splitlines():
+                if "github.com" in line and "/pull/" in line:
+                    pr_url = line.strip()
+                    break
+
+        if pr_url or detect_commits_on_branch(number):
+            log.info("Issue #%d completed successfully", number)
+            set_labels(number, add=[LABEL_DONE], remove=[LABEL_WIP])
+            msg = "Claude has finished implementing this issue."
+            if pr_url:
+                msg += f"\n\nPR: {pr_url}"
+            comment(number, msg)
+            cleanup_issue_state(issue_key)
+            return True
+        else:
+            log.info("Issue #%d: no work detected, entering waiting state", number)
+            enter_waiting_state(number, combined_output, state, issue_key)
             return False
     finally:
         reset_to_main()
 
 
+def check_waiting_issues() -> None:
+    """Check for user replies on issues in claude-waiting state."""
+    waiting = get_issues_with_label(LABEL_WAITING)
+    if not waiting:
+        return
+
+    state = load_state()
+
+    for issue in waiting:
+        number = issue["number"]
+        issue_key = str(number)
+        issue_state = state.get(issue_key)
+
+        if not issue_state or "waiting_since" not in issue_state:
+            log.warning("Issue #%d is claude-waiting but has no state — re-queuing", number)
+            set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WAITING])
+            continue
+
+        replies = get_user_replies(number, issue_state["waiting_since"])
+        if not replies:
+            log.debug("Issue #%d still waiting for user reply", number)
+            continue
+
+        reply_body = "\n\n---\n\n".join(replies)
+        log.info("Issue #%d got user reply (%d comment(s)), resuming", number, len(replies))
+
+        process_issue(issue, resume_text=reply_body)
+
+
 def recover_stuck_issues() -> None:
-    """On startup, recover any issues stuck in 'claude-wip' state."""
+    """On startup, recover issues stuck in transient states."""
     stuck = get_issues_with_label(LABEL_WIP)
     for issue in stuck:
-        log.info("Recovering stuck issue #%d: %s", issue["number"], issue["title"])
+        log.info("Recovering stuck WIP issue #%d: %s", issue["number"], issue["title"])
         set_labels(issue["number"], add=[LABEL_TRIGGER], remove=[LABEL_WIP])
+
+    waiting = get_issues_with_label(LABEL_WAITING)
+    for issue in waiting:
+        log.info("Issue #%d is waiting for user reply", issue["number"])
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────
@@ -252,6 +448,9 @@ def main() -> None:
                     process_issue(issue)
             else:
                 log.debug("No issues to process")
+
+            check_waiting_issues()
+
         except Exception:
             log.exception("Unexpected error in poll cycle")
 

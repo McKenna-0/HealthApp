@@ -91,24 +91,33 @@ Create GitHub issue      →
 Add 'claude' label       →      Poller detects issue (≤5 min)
                                  Label → claude-wip
                                  Claude CLI reads code, implements, tests
+                         ←      If Claude needs info: label → claude-waiting
+                                 Comment posted with Claude's question
+Reply to the comment     →      Poller detects reply (≤5 min)
+                                 Label → claude-wip, session resumed
+                                 (repeat up to 5 turns)
                                  Pushes branch, opens PR
                                  Label → claude-done (or claude-failed)
-Review PR on phone       ←      Comment posted with result
+Review PR on phone       ←      Comment posted with PR link
 Merge if good
 ```
 
-**Label state machine:** `claude` → `claude-wip` → `claude-done` / `claude-failed`
+**Label state machine:** `claude` → `claude-wip` → `claude-done` / `claude-failed` / `claude-waiting`
 
 - On success: PR link posted as comment, label set to `claude-done`
 - On failure: error posted as comment, label set to `claude-failed`
-- On rate limit: label reverts to `claude`, retries next cycle
+- On needs clarification: Claude's question posted as comment, label set to
+  `claude-waiting` — reply to the issue and the poller resumes automatically
+- On rate limit: label reverts to `claude` (or `claude-waiting` if mid-conversation), retries next cycle
 - On crash recovery (poller restart): stuck `claude-wip` issues are
-  automatically re-queued
+  re-queued, `claude-waiting` issues continue waiting
+- Max 5 conversation turns per issue before auto-fail
 
 ### Tips for writing good issues
 
 - Be specific: "Add a rest timer to the workout page that counts down from
   the configured rest period" works better than "add timer"
+- Describe what you see in text — Claude cannot view attached images
 - Mention relevant files if you know them
 - One feature/fix per issue — Claude works on them sequentially
 
@@ -117,11 +126,13 @@ Merge if good
 - **`gh` CLI** installed and authenticated: `gh auth login` + `gh auth setup-git`
 - **`claude` CLI** at `~/.local/bin/claude`, logged in: `claude login`
 - **SSH key** from laptop in `~/.ssh/authorized_keys` (for deploy script)
+- **Trust dialog accepted**: Run `claude` interactively once in the repo to accept the workspace trust dialog
 - GitHub labels created:
   ```bash
   gh label create claude-wip --color c5def5 --repo McKenna-0/HealthApp
   gh label create claude-done --color 0e8a16 --repo McKenna-0/HealthApp
   gh label create claude-failed --color d93f0b --repo McKenna-0/HealthApp
+  gh label create claude-waiting --color fbca04 --repo McKenna-0/HealthApp
   ```
 
 ### Start the poller
@@ -164,6 +175,13 @@ ps aux | grep github_poller
 ### Re-triggering a failed issue
 
 Remove the `claude-failed` label and re-add `claude` on the GitHub issue.
+
+### Conversation state
+
+Per-issue state (session ID, turn count, timestamps) is stored in
+`logs/conversation_state.json`. This file is preserved across deploys and
+poller restarts. If deleted, any `claude-waiting` issues will be re-queued
+for a fresh attempt.
 
 ## 7. Deploying updates
 
