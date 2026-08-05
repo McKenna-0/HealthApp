@@ -29,6 +29,7 @@ REPO = os.environ.get("GITHUB_REPO", "McKenna-0/HealthApp")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_MINUTES", "5")) * 60
 REPO_DIR = Path(__file__).resolve().parent.parent  # health-app root
 CLAUDE_TIMEOUT = 1800  # 30 minutes max per issue
+STALL_TIMEOUT = 180    # kill if 0 bytes output after 3 minutes
 
 LABEL_TRIGGER = "claude"
 LABEL_WIP = "claude-wip"
@@ -353,22 +354,45 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
     claude_log = REPO_DIR / "logs" / f"claude-issue-{number}.log"
     log.info("Claude output → %s", claude_log)
     try:
-        try:
-            mode = "a" if resume_text else "w"
-            with open(claude_log, mode) as clf:
-                if resume_text:
-                    clf.write(f"\n\n{'='*60}\nRESUMED TURN {issue_state['turn_count']}\n{'='*60}\n\n")
-                result = subprocess.run(
-                    claude_cmd,
-                    input=prompt,
-                    stdout=clf,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    cwd=str(REPO_DIR),
-                    timeout=CLAUDE_TIMEOUT,
-                )
-        except subprocess.TimeoutExpired:
-            log.warning("Claude timed out on issue #%d — will retry after cooldown", number)
+        mode = "a" if resume_text else "w"
+        clf = open(claude_log, mode)
+        if resume_text:
+            clf.write(f"\n\n{'='*60}\nRESUMED TURN {issue_state['turn_count']}\n{'='*60}\n\n")
+            clf.flush()
+        proc = subprocess.Popen(
+            claude_cmd,
+            stdin=subprocess.PIPE,
+            stdout=clf,
+            stderr=subprocess.STDOUT,
+            text=True,
+            cwd=str(REPO_DIR),
+        )
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+
+        # Poll for completion with stall detection
+        start = time.monotonic()
+        stalled = False
+        while proc.poll() is None:
+            elapsed = time.monotonic() - start
+            if elapsed > CLAUDE_TIMEOUT:
+                log.warning("Claude hit hard timeout on issue #%d", number)
+                proc.kill()
+                proc.wait()
+                stalled = True
+                break
+            log_size = claude_log.stat().st_size if claude_log.exists() else 0
+            if log_size == 0 and elapsed > STALL_TIMEOUT:
+                log.warning("Claude stalled (0 output after %ds) on issue #%d", int(elapsed), number)
+                proc.kill()
+                proc.wait()
+                stalled = True
+                break
+            time.sleep(30)
+
+        clf.close()
+
+        if stalled:
             issue_state["turn_count"] -= 1
             if resume_text is not None:
                 set_labels(number, add=[LABEL_WAITING], remove=[LABEL_WIP])
@@ -376,14 +400,16 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
                 set_labels(number, add=[LABEL_TRIGGER], remove=[LABEL_WIP])
             set_retry_cooldown(state, issue_key)
             comment(number,
-                    f"Claude timed out (likely rate limited). "
+                    f"Claude stalled (likely rate limited). "
                     f"Will auto-retry in ~{RETRY_COOLDOWN_HOURS} hours.")
             return False
+
+        returncode = proc.returncode
 
         combined_output = claude_log.read_text(errors="replace")
 
         # Non-zero exit code
-        if result.returncode != 0:
+        if returncode != 0:
             if is_rate_limited(combined_output):
                 log.warning("Rate limited on issue #%d — will retry after cooldown", number)
                 issue_state["turn_count"] -= 1
@@ -394,11 +420,11 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
                 set_retry_cooldown(state, issue_key)
                 return False
 
-            log.error("Claude failed on issue #%d (exit %d)", number, result.returncode)
+            log.error("Claude failed on issue #%d (exit %d)", number, returncode)
             error_snippet = combined_output[-1500:] if len(combined_output) > 1500 else combined_output
             set_labels(number, add=[LABEL_FAILED], remove=[LABEL_WIP])
             comment(number,
-                    f"Claude failed (exit code {result.returncode}).\n\n"
+                    f"Claude failed (exit code {returncode}).\n\n"
                     f"```\n{error_snippet}\n```")
             cleanup_issue_state(issue_key)
             return False
