@@ -6,6 +6,7 @@ export interface DashboardDay {
   hrv: number | null
   stress_avg: number | null
   body_battery_high: number | null
+  body_battery_current: number | null
   sleep_score: number | null
   sleep_duration_min: number | null
   weight: number | null
@@ -518,6 +519,14 @@ export interface IntradayBodyBatteryPoint {
 export interface IntradayStressPoint {
   timestamp: string
   stress_level: number
+}
+
+export interface BodyBatteryFactor {
+  type: 'sleep' | 'activity'
+  label: string
+  start_ts: string
+  end_ts: string
+  impact: number
 }
 
 export interface TimeSeriesPoint {

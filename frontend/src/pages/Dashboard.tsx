@@ -43,8 +43,8 @@ function getMetricValue(day: DashboardData['series'][0] | undefined, key: string
     calories_out: day.calories_out,
     steps:        day.steps,
     resting_hr:   day.resting_hr,
-    // DashboardDay uses body_battery_high
-    body_battery: day.body_battery_high,
+    // live/most-recently-synced reading, not the day's historical peak
+    body_battery: day.body_battery_current,
   }
   return map[key] ?? null
 }

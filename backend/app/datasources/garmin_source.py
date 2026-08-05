@@ -161,16 +161,42 @@ def map_hr_zones(data) -> list[HrZoneDTO]:
 
 
 def map_intraday_body_battery(day: date, data: list) -> list[IntradayBodyBatteryDTO]:
-    """data: garmin.get_body_battery(date) — list of dicts with startTimestampLocal and bodyBatteryLevel."""
+    """data: garmin.get_body_battery(date) — a list of daily-report dicts, each
+    carrying a nested `bodyBatteryValuesArray` (mirrors the `stressValuesArray`
+    shape used by get_stress_data): [[ts_ms, status, level, version], ...].
+
+    ASSUMPTION: the exact field layout is unverified against a live Garmin
+    account in this environment (no test fixture existed previously, and the
+    old flat-dict parsing silently matched nothing against the real API,
+    leaving intraday_body_battery permanently empty). This mapper tries the
+    nested-array shape first and falls back to the previously-assumed flat
+    {startTimestampLocal, bodyBatteryLevel} shape for forward/backward compat.
+    """
     out = []
-    for entry in data or []:
-        if not isinstance(entry, dict):
+    for report in data or []:
+        if not isinstance(report, dict):
             continue
-        ts = _get(entry, "startTimestampLocal") or _get(entry, "timestampLocal")
-        level = _get(entry, "bodyBatteryLevel") or _get(entry, "level")
+        values_array = _get(report, "bodyBatteryValuesArray")
+        if values_array:
+            for entry in values_array:
+                if not (isinstance(entry, (list, tuple)) and len(entry) >= 2):
+                    continue
+                ts_ms = entry[0]
+                # [ts, level] or [ts, status, level, version]
+                level = entry[2] if len(entry) >= 3 else entry[1]
+                if ts_ms is None or level is None or (isinstance(level, (int, float)) and level < 0):
+                    continue
+                try:
+                    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone()
+                    ts_str = dt.strftime("%H:%M")
+                except Exception:
+                    continue
+                out.append(IntradayBodyBatteryDTO(date=day, timestamp=ts_str, body_battery=int(level)))
+            continue
+        ts = _get(report, "startTimestampLocal") or _get(report, "timestampLocal")
+        level = _get(report, "bodyBatteryLevel") or _get(report, "level")
         if ts is None or level is None:
             continue
-        # Use HH:MM portion if full ISO, else store as-is
         ts_str = str(ts)
         if "T" in ts_str:
             ts_str = ts_str.split("T")[1][:5]

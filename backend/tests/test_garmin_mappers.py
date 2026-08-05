@@ -2,12 +2,13 @@
 shapes from the python-garminconnect README/examples. These run without a
 Garmin account; live fetching is exercised once an account exists."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.datasources.garmin_source import (
     map_activity,
     map_daily_metrics,
     map_hr_zones,
+    map_intraday_body_battery,
     map_laps,
     map_sleep,
     map_weight,
@@ -193,3 +194,40 @@ def test_map_hr_zones_tolerates_dict_and_empty():
     assert map_hr_zones({}) == []
     assert map_hr_zones([]) == []
     assert map_hr_zones({"zones": [{"zoneNumber": 1, "secsInZone": 10.0}]})[0].zone_number == 1
+
+
+def test_map_intraday_body_battery_nested_array():
+    # Mirrors stressValuesArray's shape: [ts_ms, status, level, version].
+    ts_ms = int(datetime(2026, 7, 1, 14, 30, tzinfo=timezone.utc).timestamp() * 1000)
+    data = [
+        {
+            "bodyBatteryValuesArray": [
+                [ts_ms, "MEASURED", 72, 0],
+                [ts_ms + 15 * 60 * 1000, "MEASURED", 70, 0],
+            ],
+        }
+    ]
+    dtos = map_intraday_body_battery(DAY, data)
+    assert len(dtos) == 2
+    assert dtos[0].body_battery == 72
+    assert dtos[1].body_battery == 70
+    assert dtos[0].date == DAY
+
+
+def test_map_intraday_body_battery_skips_negative_and_missing():
+    data = [{"bodyBatteryValuesArray": [[1000, "UNMEASURABLE", -1, 0], [None, "X", 50, 0]]}]
+    assert map_intraday_body_battery(DAY, data) == []
+
+
+def test_map_intraday_body_battery_flat_dict_fallback():
+    # Backward compat with the previously-assumed flat shape.
+    data = [{"startTimestampLocal": "2026-07-01T08:00:00.0", "bodyBatteryLevel": 65}]
+    dtos = map_intraday_body_battery(DAY, data)
+    assert len(dtos) == 1
+    assert dtos[0].timestamp == "08:00"
+    assert dtos[0].body_battery == 65
+
+
+def test_map_intraday_body_battery_empty():
+    assert map_intraday_body_battery(DAY, []) == []
+    assert map_intraday_body_battery(DAY, None) == []

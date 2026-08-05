@@ -450,3 +450,11 @@ class IntradayBodyBatteryOut(ORMModel):
 class IntradayStressOut(ORMModel):
     timestamp: str
     stress_level: int
+
+
+class BodyBatteryFactorOut(BaseModel):
+    type: str
+    label: str
+    start_ts: str
+    end_ts: str
+    impact: int

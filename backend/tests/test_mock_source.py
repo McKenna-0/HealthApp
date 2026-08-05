@@ -53,3 +53,41 @@ def test_calories_are_consistent():
     for d in DAYS[:30]:
         m = src.fetch_daily_metrics(d)
         assert m.calories_total_out == m.calories_bmr + m.calories_active
+
+
+def test_intraday_body_battery_populated_and_bounded():
+    src = MockSource()
+    for d in DAYS[:10]:
+        rows = src.fetch_intraday_body_battery(d)
+        assert rows, f"expected intraday body battery data for {d}"
+        assert all(0 <= r.body_battery <= 100 for r in rows)
+        assert all(r.date == d for r in rows)
+        # timestamps strictly increasing HH:MM strings
+        timestamps = [r.timestamp for r in rows]
+        assert timestamps == sorted(timestamps)
+
+
+def test_intraday_stress_populated_and_bounded():
+    src = MockSource()
+    for d in DAYS[:10]:
+        rows = src.fetch_intraday_stress(d)
+        assert rows, f"expected intraday stress data for {d}"
+        assert all(0 <= r.stress_level <= 100 for r in rows)
+
+
+def test_intraday_body_battery_deterministic():
+    a, b = MockSource(), MockSource()
+    for d in DAYS[:5]:
+        assert a.fetch_intraday_body_battery(d) == b.fetch_intraday_body_battery(d)
+
+
+def test_intraday_body_battery_high_low_track_daily_metrics():
+    """The intraday curve should roughly span the day's reported high/low,
+    since the daytime drain interpolates between them."""
+    src = MockSource()
+    for d in DAYS[:10]:
+        metrics = src.fetch_daily_metrics(d)
+        rows = src.fetch_intraday_body_battery(d)
+        values = [r.body_battery for r in rows]
+        assert max(values) <= metrics.body_battery_high + 10
+        assert min(values) >= max(0, metrics.body_battery_low - 10)
