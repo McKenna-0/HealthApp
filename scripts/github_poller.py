@@ -335,12 +335,17 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
         return False
 
     # Build command and prompt
-    if resume_text is not None:
+    if issue_state.get("session_started"):
         claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--resume", sid]
+    else:
+        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--session-id", sid]
+        issue_state["session_started"] = True
+        save_state(state)
+
+    if resume_text is not None:
         prompt = f"User reply:\n\n{resume_text}\n\nContinue implementing the issue."
         comment(number, f"Resuming with your reply (turn {issue_state['turn_count']})...")
     else:
-        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--session-id", sid]
         prompt = build_prompt(issue)
         comment(number, "Poller picked up this issue. Claude is working on it now...")
 
