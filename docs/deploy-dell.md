@@ -90,28 +90,34 @@ You (phone)                     Dell server
 Create GitHub issue      →
 Add 'claude' label       →      Poller detects issue (≤5 min)
                                  Label → claude-wip
-                                 Claude CLI reads code, implements, tests
+                                 Claude CLI (Opus) implements, tests
                          ←      If Claude needs info: label → claude-waiting
                                  Comment posted with Claude's question
 Reply to the comment     →      Poller detects reply (≤5 min)
                                  Label → claude-wip, session resumed
-                                 (repeat up to 5 turns)
                                  Pushes branch, opens PR
-                                 Label → claude-done (or claude-failed)
-Review PR on phone       ←      Comment posted with PR link
-Merge if good
+                                 Auto-deploys branch to your phone
+                                 Label → claude-review
+Test on your phone       ←      Changes are live on the PWA
+Post feedback comment    →      Poller resumes Claude with feedback
+                                 Claude iterates, redeploys branch
+                                 (repeat up to 10 turns)
+Comment 'lgtm'           →      PR merged, main deployed
+                                 Label → claude-done
 ```
 
-**Label state machine:** `claude` → `claude-wip` → `claude-done` / `claude-failed` / `claude-waiting`
+**Label state machine:** `claude` → `claude-wip` → `claude-review` (test on phone) → `claude-done` / back to `claude-wip` (feedback)
 
-- On success: PR link posted as comment, label set to `claude-done`
+- On success: branch auto-deployed to your phone, label set to `claude-review`
+- On `claude-review`: test on phone, comment feedback to iterate, or comment
+  **lgtm** to merge the PR and deploy main
 - On failure: error posted as comment, label set to `claude-failed`
 - On needs clarification: Claude's question posted as comment, label set to
   `claude-waiting` — reply to the issue and the poller resumes automatically
 - On rate limit: label reverts to `claude` (or `claude-waiting` if mid-conversation), retries next cycle
 - On crash recovery (poller restart): stuck `claude-wip` issues are
-  re-queued, `claude-waiting` issues continue waiting
-- Max 5 conversation turns per issue before auto-fail
+  re-queued, `claude-review` issues re-deploy their branch, `claude-waiting` issues continue waiting
+- Max 10 conversation turns per issue (includes review feedback rounds)
 
 ### Tips for writing good issues
 
@@ -133,6 +139,7 @@ Merge if good
   gh label create claude-done --color 0e8a16 --repo McKenna-0/HealthApp
   gh label create claude-failed --color d93f0b --repo McKenna-0/HealthApp
   gh label create claude-waiting --color fbca04 --repo McKenna-0/HealthApp
+  gh label create claude-review --color 1d76db --repo McKenna-0/HealthApp
   ```
 
 ### Start the poller

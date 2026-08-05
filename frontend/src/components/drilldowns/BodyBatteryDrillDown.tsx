@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ComposedChart,
+  Area,
   Line,
   Scatter,
   ReferenceArea,
@@ -31,6 +32,7 @@ const tooltipStyle = {
 }
 
 const UNMEASURABLE_GAP_MIN = 25
+const REST_STRESS_THRESHOLD = 25
 const DAY_MIN = 1440
 const AXIS_TICKS = [0, 240, 480, 720, 960, 1200]
 
@@ -156,7 +158,7 @@ export default function BodyBatteryDrillDown() {
   const isLoading = bbLoading || stressLoading
 
   // Merge into a single series keyed by minute-of-day
-  const merged: Record<number, { minute: number; time: string; body_battery?: number; stress?: number }> = {}
+  const merged: Record<number, { minute: number; time: string; body_battery?: number; stress?: number; stress_rest?: number; stress_active?: number }> = {}
   for (const pt of bbData ?? []) {
     const min = toMinutes(pt.timestamp)
     merged[min] = { ...merged[min], minute: min, time: pt.timestamp, body_battery: pt.body_battery }
@@ -166,6 +168,26 @@ export default function BodyBatteryDrillDown() {
     merged[min] = { ...merged[min], minute: min, time: pt.timestamp, stress: pt.stress_level }
   }
   const chartData = Object.values(merged).sort((a, b) => a.minute - b.minute)
+
+  // Split stress into rest/active segments for Garmin-style colored fill
+  for (let i = 0; i < chartData.length; i++) {
+    const pt = chartData[i]
+    if (pt.stress == null) continue
+    const isRest = pt.stress < REST_STRESS_THRESHOLD
+    pt.stress_rest = isRest ? pt.stress : undefined
+    pt.stress_active = !isRest ? pt.stress : undefined
+    // Bridge threshold crossings to avoid visual gaps
+    if (i > 0) {
+      const prev = chartData[i - 1]
+      if (prev.stress != null) {
+        const prevRest = prev.stress < REST_STRESS_THRESHOLD
+        if (prevRest !== isRest) {
+          pt.stress_rest = pt.stress
+          pt.stress_active = pt.stress
+        }
+      }
+    }
+  }
 
   const bbValues = (bbData ?? []).map(p => p.body_battery)
   const latest = bbValues.length ? bbValues[bbValues.length - 1] : null
@@ -307,7 +329,9 @@ export default function BodyBatteryDrillDown() {
                 labelFormatter={(min) => (typeof min === 'number' ? minuteLabel(min) : min)}
                 formatter={(value, name) => [
                   value,
-                  name === 'body_battery' ? 'Body Battery' : 'Stress',
+                  name === 'body_battery' ? 'Body Battery'
+                    : name === 'stress_rest' ? 'Rest'
+                    : 'Stress',
                 ]}
               />
 
@@ -317,31 +341,46 @@ export default function BodyBatteryDrillDown() {
               {unmeasurableBands.map(([s, e], i) => (
                 <ReferenceArea key={`unmeasurable-${i}`} x1={s} x2={e} y1={0} y2={100} fill="var(--muted)" fillOpacity={0.14} stroke="none" ifOverflow="visible" />
               ))}
-              {showRest && restBands.map(([s, e], i) => (
-                <ReferenceArea key={`rest-${i}`} x1={s} x2={e} y1={0} y2={100} fill="var(--accent)" fillOpacity={0.12} stroke="none" ifOverflow="visible" />
-              ))}
+
+              {showStress && (
+                <Area
+                  type="monotone"
+                  dataKey="stress_active"
+                  stroke="var(--amber)"
+                  strokeWidth={1}
+                  strokeOpacity={0.7}
+                  fill="var(--amber)"
+                  fillOpacity={0.15}
+                  dot={false}
+                  connectNulls={false}
+                  name="stress_active"
+                  isAnimationActive={false}
+                />
+              )}
+              {showRest && (
+                <Area
+                  type="monotone"
+                  dataKey="stress_rest"
+                  stroke="var(--accent)"
+                  strokeWidth={1}
+                  strokeOpacity={0.7}
+                  fill="var(--accent)"
+                  fillOpacity={0.25}
+                  dot={false}
+                  connectNulls={false}
+                  name="stress_rest"
+                  isAnimationActive={false}
+                />
+              )}
 
               {showBodyBattery && (
                 <Line
-                  type="linear"
+                  type="monotone"
                   dataKey="body_battery"
                   stroke="var(--accent)"
                   strokeWidth={2}
                   dot={false}
                   name="body_battery"
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              )}
-              {showStress && (
-                <Line
-                  type="linear"
-                  dataKey="stress"
-                  stroke="var(--amber)"
-                  strokeWidth={1}
-                  strokeOpacity={0.7}
-                  dot={false}
-                  name="stress"
                   connectNulls
                   isAnimationActive={false}
                 />

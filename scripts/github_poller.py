@@ -36,11 +36,13 @@ LABEL_WIP = "claude-wip"
 LABEL_DONE = "claude-done"
 LABEL_FAILED = "claude-failed"
 LABEL_WAITING = "claude-waiting"
+LABEL_REVIEW = "claude-review"
 
-MAX_CONVERSATION_TURNS = 5
+MAX_CONVERSATION_TURNS = 10
 RETRY_COOLDOWN_HOURS = 2
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "opus")
 
 RATE_LIMIT_HINTS = ["rate limit", "usage limit", "capacity", "try again later",
                     "too many requests", "throttl"]
@@ -227,6 +229,23 @@ def detect_commits_on_branch(issue_number: int) -> bool:
         return False
 
 
+def detect_pr_merged(issue_number: int) -> bool:
+    """Check if the PR for this issue has been merged."""
+    result = gh(
+        "pr", "list",
+        "--repo", REPO,
+        "--head", f"claude/issue-{issue_number}",
+        "--json", "url,mergedAt",
+        "--state", "merged",
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        return len(json.loads(result.stdout)) > 0
+    except (json.JSONDecodeError, IndexError):
+        return False
+
+
 # ── Git helpers ────────────────────────────────────────────────────────────
 
 def git(*args: str) -> subprocess.CompletedProcess:
@@ -246,6 +265,48 @@ def reset_to_main() -> bool:
         log.warning("git pull --ff-only failed: %s", result.stderr.strip())
         return False
     return True
+
+
+def _build_and_restart() -> bool:
+    """Build frontend and restart uvicorn on whatever branch is checked out."""
+    build = subprocess.run(
+        ["bash", str(REPO_DIR / "scripts" / "build_frontend.sh")],
+        capture_output=True, text=True, cwd=str(REPO_DIR),
+    )
+    if build.returncode != 0:
+        log.error("Frontend build failed: %s", build.stderr[-500:])
+        return False
+    log.info("Frontend built successfully")
+
+    subprocess.run(["pkill", "-f", "uvicorn app.main:app"],
+                   capture_output=True, cwd=str(REPO_DIR))
+    time.sleep(2)
+
+    uvicorn_log = REPO_DIR / "logs" / "uvicorn.log"
+    uf = open(uvicorn_log, "a")
+    subprocess.Popen(
+        ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+        cwd=str(REPO_DIR / "backend"),
+        stdout=uf, stderr=subprocess.STDOUT,
+    )
+    log.info("Uvicorn restarted")
+    return True
+
+
+def deploy_branch(branch: str) -> bool:
+    """Checkout a feature branch, build frontend, restart uvicorn."""
+    result = git("checkout", branch)
+    if result.returncode != 0:
+        log.error("Failed to checkout %s: %s", branch, result.stderr.strip())
+        return False
+    return _build_and_restart()
+
+
+def deploy_main() -> bool:
+    """Checkout main, pull latest, build frontend, restart uvicorn."""
+    git("checkout", "main")
+    git("pull", "--ff-only")
+    return _build_and_restart()
 
 
 # ── Core logic ─────────────────────────────────────────────────────────────
@@ -302,12 +363,14 @@ def enter_waiting_state(issue_number: int, claude_output: str,
     log.info("Issue #%d entered waiting state", issue_number)
 
 
-def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
+def process_issue(issue: dict, *, resume_text: str | None = None,
+                   resume_context: str = "waiting") -> bool:
     """Process a single GitHub issue. Returns True on success."""
     number = issue["number"]
     title = issue["title"]
     issue_key = str(number)
-    log.info("Processing issue #%d: %s (resume=%s)", number, title, resume_text is not None)
+    log.info("Processing issue #%d: %s (resume=%s, context=%s)",
+             number, title, resume_text is not None, resume_context)
 
     # Load/init conversation state
     state = load_state()
@@ -325,8 +388,8 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
         cleanup_issue_state(issue_key)
         return False
 
-    # Mark as work-in-progress (may already be WIP from check_waiting_issues)
-    set_labels(number, add=[LABEL_WIP], remove=[LABEL_TRIGGER, LABEL_WAITING])
+    # Mark as work-in-progress
+    set_labels(number, add=[LABEL_WIP], remove=[LABEL_TRIGGER, LABEL_WAITING, LABEL_REVIEW])
 
     # Clean working tree
     if not reset_to_main():
@@ -337,14 +400,20 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
 
     # Build command and prompt
     if issue_state.get("session_started"):
-        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--resume", sid]
+        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions",
+                      "--model", CLAUDE_MODEL, "--resume", sid]
     else:
-        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions", "--session-id", sid]
+        claude_cmd = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions",
+                      "--model", CLAUDE_MODEL, "--session-id", sid]
         issue_state["session_started"] = True
         save_state(state)
 
     if resume_text is not None:
-        prompt = f"User reply:\n\n{resume_text}\n\nContinue implementing the issue."
+        if resume_context == "review":
+            prompt = (f"The user tested your changes and has feedback:\n\n{resume_text}\n\n"
+                      f"Address this feedback. Commit and push to the existing branch.")
+        else:
+            prompt = f"User reply:\n\n{resume_text}\n\nContinue implementing the issue."
         comment(number, f"Resuming with your reply (turn {issue_state['turn_count']})...")
     else:
         prompt = build_prompt(issue)
@@ -353,6 +422,7 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
     # Run Claude CLI
     claude_log = REPO_DIR / "logs" / f"claude-issue-{number}.log"
     log.info("Claude output → %s", claude_log)
+    stay_on_branch = False
     try:
         mode = "a" if resume_text else "w"
         clf = open(claude_log, mode)
@@ -446,20 +516,33 @@ def process_issue(issue: dict, *, resume_text: str | None = None) -> bool:
                     break
 
         if pr_url or detect_commits_on_branch(number):
-            log.info("Issue #%d completed successfully", number)
-            set_labels(number, add=[LABEL_DONE], remove=[LABEL_WIP])
-            msg = "Claude has finished implementing this issue."
+            branch = f"claude/issue-{number}"
+            log.info("Issue #%d: deploying branch %s for review", number, branch)
+            deployed = deploy_branch(branch)
+            set_labels(number, add=[LABEL_REVIEW], remove=[LABEL_WIP])
+            msg = ("Claude has finished implementing this issue.\n\n"
+                   "**Changes are live on your phone for testing.**\n"
+                   "Reply with feedback to request changes, or comment **lgtm** to merge.")
             if pr_url:
                 msg += f"\n\nPR: {pr_url}"
+            if not deployed:
+                msg += "\n\n⚠️ Auto-deploy failed — changes are on the branch but not yet live."
             comment(number, msg)
-            cleanup_issue_state(issue_key)
+            state = load_state()
+            if issue_key not in state:
+                state[issue_key] = {"session_id": sid, "turn_count": issue_state["turn_count"]}
+            state[issue_key]["review_since"] = _now_iso()
+            state[issue_key]["pr_url"] = pr_url
+            save_state(state)
+            stay_on_branch = True
             return True
         else:
             log.info("Issue #%d: no work detected, entering waiting state", number)
             enter_waiting_state(number, combined_output, state, issue_key)
             return False
     finally:
-        reset_to_main()
+        if not stay_on_branch:
+            reset_to_main()
 
 
 def check_waiting_issues() -> None:
@@ -495,6 +578,65 @@ def check_waiting_issues() -> None:
         process_issue(issue, resume_text=reply_body)
 
 
+def check_review_issues() -> None:
+    """Check for user feedback or PR merges on issues in claude-review state."""
+    review_issues = get_issues_with_label(LABEL_REVIEW)
+    if not review_issues:
+        return
+
+    state = load_state()
+
+    for issue in review_issues:
+        number = issue["number"]
+        issue_key = str(number)
+        issue_state = state.get(issue_key, {})
+
+        if is_on_cooldown(state, issue_key):
+            log.info("Skipping review issue #%d — on cooldown", number)
+            continue
+
+        if detect_pr_merged(number):
+            log.info("Issue #%d: PR merged, deploying main", number)
+            deploy_main()
+            set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
+            comment(number, "PR merged. Main branch deployed.")
+            cleanup_issue_state(issue_key)
+            continue
+
+        review_since = issue_state.get("review_since")
+        if not review_since:
+            log.warning("Issue #%d is claude-review but has no review_since — skipping", number)
+            continue
+
+        replies = get_user_replies(number, review_since)
+        if not replies:
+            log.debug("Issue #%d still awaiting review", number)
+            continue
+
+        reply_body = "\n\n---\n\n".join(replies)
+
+        if reply_body.strip().lower() == "lgtm":
+            log.info("Issue #%d: user approved, merging PR", number)
+            merge_result = gh("pr", "merge",
+                              "--repo", REPO,
+                              "--head", f"claude/issue-{number}",
+                              "--merge")
+            if merge_result.returncode != 0:
+                pr_url = detect_pr_created(number)
+                if pr_url:
+                    pr_num = pr_url.rstrip("/").split("/")[-1]
+                    merge_result = gh("pr", "merge", pr_num, "--repo", REPO, "--merge")
+            deploy_main()
+            set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
+            comment(number, "PR merged and main branch deployed.")
+            cleanup_issue_state(issue_key)
+            continue
+
+        log.info("Issue #%d got review feedback (%d comment(s)), resuming",
+                 number, len(replies))
+        process_issue(issue, resume_text=reply_body, resume_context="review")
+
+
 def recover_stuck_issues() -> None:
     """On startup, recover issues stuck in transient states."""
     stuck = get_issues_with_label(LABEL_WIP)
@@ -506,11 +648,21 @@ def recover_stuck_issues() -> None:
     for issue in waiting:
         log.info("Issue #%d is waiting for user reply", issue["number"])
 
+    reviewing = get_issues_with_label(LABEL_REVIEW)
+    for issue in reviewing:
+        number = issue["number"]
+        log.info("Issue #%d is awaiting user review — ensuring branch is deployed", number)
+        branch = f"claude/issue-{number}"
+        result = git("branch", "--list", branch)
+        if result.stdout.strip():
+            deploy_branch(branch)
+
 
 # ── Main loop ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    log.info("GitHub issue poller started (repo=%s, interval=%ds)", REPO, POLL_INTERVAL)
+    log.info("GitHub issue poller started (repo=%s, interval=%ds, model=%s)",
+             REPO, POLL_INTERVAL, CLAUDE_MODEL)
     log.info("Repo directory: %s", REPO_DIR)
 
     recover_stuck_issues()
@@ -531,6 +683,7 @@ def main() -> None:
                 log.debug("No issues to process")
 
             check_waiting_issues()
+            check_review_issues()
 
         except Exception:
             log.exception("Unexpected error in poll cycle")

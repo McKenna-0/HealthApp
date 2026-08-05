@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +31,16 @@ class Settings(BaseSettings):
 
     sync_lookback_days: int = 7
     catchup_after_hours: int = 12
+
+    @field_validator(
+        "data_source", "tz", "garmin_email", "garmin_password",
+        "usda_api_key", "ai_base_url", "ai_api_key", "ai_model",
+        "ai_vision_model",
+        mode="before",
+    )
+    @classmethod
+    def _strip(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
 
 
 settings = Settings()
