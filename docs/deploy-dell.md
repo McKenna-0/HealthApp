@@ -77,14 +77,47 @@ tailscale serve status   # shows https://<dell>.<tailnet>.ts.net
 
 ## 6. GitHub Issue Poller (auto-implement from phone)
 
-The poller watches for GitHub issues labeled `claude` and automatically
-implements them using the Claude CLI (uses your subscription, no API key).
+A background script (`scripts/github_poller.py`) on the Dell polls GitHub every
+5 minutes for issues labeled `claude`. When it finds one, it runs the Claude
+Code CLI (using your subscription — no API costs) to implement the feature or
+fix, then opens a PR for you to review on your phone.
 
-### Prerequisites on the Dell
+### How it works
+
+```
+You (phone)                     Dell server
+───────────                     ───────────
+Create GitHub issue      →
+Add 'claude' label       →      Poller detects issue (≤5 min)
+                                 Label → claude-wip
+                                 Claude CLI reads code, implements, tests
+                                 Pushes branch, opens PR
+                                 Label → claude-done (or claude-failed)
+Review PR on phone       ←      Comment posted with result
+Merge if good
+```
+
+**Label state machine:** `claude` → `claude-wip` → `claude-done` / `claude-failed`
+
+- On success: PR link posted as comment, label set to `claude-done`
+- On failure: error posted as comment, label set to `claude-failed`
+- On rate limit: label reverts to `claude`, retries next cycle
+- On crash recovery (poller restart): stuck `claude-wip` issues are
+  automatically re-queued
+
+### Tips for writing good issues
+
+- Be specific: "Add a rest timer to the workout page that counts down from
+  the configured rest period" works better than "add timer"
+- Mention relevant files if you know them
+- One feature/fix per issue — Claude works on them sequentially
+
+### Prerequisites on the Dell (one-time)
 
 - **`gh` CLI** installed and authenticated: `gh auth login` + `gh auth setup-git`
-- **`claude` CLI** installed and logged in: `claude login`
-- GitHub labels created (one-time):
+- **`claude` CLI** at `~/.local/bin/claude`, logged in: `claude login`
+- **SSH key** from laptop in `~/.ssh/authorized_keys` (for deploy script)
+- GitHub labels created:
   ```bash
   gh label create claude-wip --color c5def5 --repo McKenna-0/HealthApp
   gh label create claude-done --color 0e8a16 --repo McKenna-0/HealthApp
@@ -93,27 +126,44 @@ implements them using the Claude CLI (uses your subscription, no API key).
 
 ### Start the poller
 
-Auto-start at logon: Win+R → `shell:startup` → create a shortcut to
-`deploy\start-poller.bat` (alongside the app shortcut).
-
-Or start manually:
+Auto-start at logon: `~/.config/autostart/github-poller.desktop` is already
+configured. Or start manually:
 
 ```bash
 cd ~/health-app
-nohup python scripts/github_poller.py >> logs/poller.log 2>&1 &
+mkdir -p logs
+nohup python3 scripts/github_poller.py >> logs/poller.log 2>&1 &
 disown
 ```
+
+The deploy script (`scripts/deploy.sh`) automatically restarts the poller on
+each deploy.
 
 ### Usage from phone
 
 1. Open GitHub mobile app → create an issue describing the feature/bug
 2. Add the `claude` label
 3. Within 5 minutes, the poller picks it up and Claude starts working
-4. Label changes track state: `claude` → `claude-wip` → `claude-done` or `claude-failed`
+4. Watch label changes: `claude` → `claude-wip` → `claude-done` or `claude-failed`
 5. Review the PR on your phone, merge if good
 6. If `claude-failed`, check the comment on the issue for the error
 
-**Logs:** `~/health-app/logs/poller.log`
+### Monitoring
+
+```bash
+# Poller status
+tail -f ~/health-app/logs/poller.log
+
+# Live Claude output for a specific issue
+tail -f ~/health-app/logs/claude-issue-1.log
+
+# Check process is running
+ps aux | grep github_poller
+```
+
+### Re-triggering a failed issue
+
+Remove the `claude-failed` label and re-add `claude` on the GitHub issue.
 
 ## 7. Deploying updates
 
