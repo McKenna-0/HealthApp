@@ -159,12 +159,13 @@ each deploy.
 
 ### Usage from phone
 
-1. Open GitHub mobile app → create an issue describing the feature/bug
-2. Add the `claude` label
-3. Within 5 minutes, the poller picks it up and Claude starts working
-4. Watch label changes: `claude` → `claude-wip` → `claude-done` or `claude-failed`
-5. Review the PR on your phone, merge if good
-6. If `claude-failed`, check the comment on the issue for the error
+See `docs/phone-workflow.md` for the full guide. Quick steps:
+
+1. GitHub mobile → create issue → add `claude` label
+2. Claude implements (≤5 min pickup, up to 30 min work)
+3. Changes auto-deploy to your phone for testing
+4. Comment feedback to iterate, or comment **lgtm** to merge
+5. If `claude-failed`, check the issue comment for the error
 
 ### Monitoring
 
