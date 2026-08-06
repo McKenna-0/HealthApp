@@ -8,7 +8,6 @@ import {
   ReferenceArea,
   XAxis,
   YAxis,
-  Tooltip,
   ResponsiveContainer,
 } from 'recharts'
 import { ChevronLeft, ChevronRight, Moon, Sunrise, Dumbbell, Footprints, Activity as ActivityIcon } from 'lucide-react'
@@ -21,15 +20,6 @@ import type {
   Workout,
 } from '../../api/types'
 import SkeletonLoader from '../SkeletonLoader'
-
-const tooltipStyle = {
-  contentStyle: {
-    background: 'var(--card-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    color: 'var(--text)',
-  },
-}
 
 const UNMEASURABLE_GAP_MIN = 25
 const REST_STRESS_THRESHOLD = 25
@@ -324,23 +314,6 @@ export default function BodyBatteryDrillDown() {
                 axisLine={false}
                 width={32}
               />
-              <Tooltip
-                {...tooltipStyle}
-                labelFormatter={(min) => {
-                  if (typeof min !== 'number') return min
-                  const h = Math.floor(min / 60) % 24
-                  const m = Math.round(min % 60)
-                  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-                }}
-                formatter={(value, name, entry) => {
-                  if (name === 'stress_active' && (entry.payload as Record<string, unknown>)?.stress_rest != null) return null
-                  const label = name === 'body_battery' ? 'Body Battery'
-                    : (name === 'stress_rest' || name === 'stress_active') ? 'Stress'
-                    : String(name)
-                  return [Math.round(Number(value)), label]
-                }}
-              />
-
               {activeBands.map(([s, e], i) => (
                 <ReferenceArea key={`active-${i}`} x1={s} x2={e} y1={0} y2={100} fill="var(--green)" fillOpacity={0.12} stroke="none" ifOverflow="visible" />
               ))}
@@ -350,13 +323,12 @@ export default function BodyBatteryDrillDown() {
 
               {showStress && (
                 <Area
-                  type="monotone"
+                  type="step"
                   dataKey="stress_active"
                   stroke="var(--amber)"
-                  strokeWidth={1}
-                  strokeOpacity={0.7}
+                  strokeWidth={0}
                   fill="var(--amber)"
-                  fillOpacity={0.15}
+                  fillOpacity={0.3}
                   dot={false}
                   connectNulls={false}
                   name="stress_active"
@@ -365,13 +337,12 @@ export default function BodyBatteryDrillDown() {
               )}
               {showRest && (
                 <Area
-                  type="monotone"
+                  type="step"
                   dataKey="stress_rest"
                   stroke="var(--accent)"
-                  strokeWidth={1}
-                  strokeOpacity={0.7}
+                  strokeWidth={0}
                   fill="var(--accent)"
-                  fillOpacity={0.25}
+                  fillOpacity={0.35}
                   dot={false}
                   connectNulls={false}
                   name="stress_rest"
