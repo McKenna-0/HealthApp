@@ -267,13 +267,21 @@ def reset_to_main() -> bool:
     return True
 
 
-def _build_and_restart() -> bool:
-    """Build frontend and restart uvicorn on whatever branch is checked out."""
+def _deploy_env() -> dict:
+    """Build an env dict with ~/.local/bin and nvm node on PATH."""
     env = os.environ.copy()
+    extra = [str(Path.home() / ".local" / "bin")]
     nvm_node = Path.home() / ".nvm" / "versions" / "node"
     node_dirs = sorted(nvm_node.iterdir()) if nvm_node.is_dir() else []
     if node_dirs:
-        env["PATH"] = str(node_dirs[-1] / "bin") + ":" + env.get("PATH", "")
+        extra.append(str(node_dirs[-1] / "bin"))
+    env["PATH"] = ":".join(extra) + ":" + env.get("PATH", "")
+    return env
+
+
+def _build_and_restart() -> bool:
+    """Build frontend and restart uvicorn on whatever branch is checked out."""
+    env = _deploy_env()
     build = subprocess.run(
         ["bash", str(REPO_DIR / "scripts" / "build_frontend.sh")],
         capture_output=True, text=True, cwd=str(REPO_DIR), env=env,
@@ -293,6 +301,7 @@ def _build_and_restart() -> bool:
         ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
         cwd=str(REPO_DIR / "backend"),
         stdout=uf, stderr=subprocess.STDOUT,
+        env=env,
     )
     log.info("Uvicorn restarted")
     return True
