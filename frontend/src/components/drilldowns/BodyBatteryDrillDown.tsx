@@ -326,13 +326,19 @@ export default function BodyBatteryDrillDown() {
               />
               <Tooltip
                 {...tooltipStyle}
-                labelFormatter={(min) => (typeof min === 'number' ? minuteLabel(min) : min)}
-                formatter={(value, name) => [
-                  value,
-                  name === 'body_battery' ? 'Body Battery'
-                    : name === 'stress_rest' ? 'Rest'
-                    : 'Stress',
-                ]}
+                labelFormatter={(min) => {
+                  if (typeof min !== 'number') return min
+                  const h = Math.floor(min / 60) % 24
+                  const m = Math.round(min % 60)
+                  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+                }}
+                formatter={(value, name, entry) => {
+                  if (name === 'stress_active' && (entry.payload as Record<string, unknown>)?.stress_rest != null) return null
+                  const label = name === 'body_battery' ? 'Body Battery'
+                    : (name === 'stress_rest' || name === 'stress_active') ? 'Stress'
+                    : String(name)
+                  return [Math.round(Number(value)), label]
+                }}
               />
 
               {activeBands.map(([s, e], i) => (
