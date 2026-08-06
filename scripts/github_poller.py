@@ -269,9 +269,14 @@ def reset_to_main() -> bool:
 
 def _build_and_restart() -> bool:
     """Build frontend and restart uvicorn on whatever branch is checked out."""
+    env = os.environ.copy()
+    nvm_node = Path.home() / ".nvm" / "versions" / "node"
+    node_dirs = sorted(nvm_node.iterdir()) if nvm_node.is_dir() else []
+    if node_dirs:
+        env["PATH"] = str(node_dirs[-1] / "bin") + ":" + env.get("PATH", "")
     build = subprocess.run(
         ["bash", str(REPO_DIR / "scripts" / "build_frontend.sh")],
-        capture_output=True, text=True, cwd=str(REPO_DIR),
+        capture_output=True, text=True, cwd=str(REPO_DIR), env=env,
     )
     if build.returncode != 0:
         log.error("Frontend build failed: %s", build.stderr[-500:])
