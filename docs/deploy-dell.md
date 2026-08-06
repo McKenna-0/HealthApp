@@ -106,7 +106,7 @@ Comment 'lgtm'           →      PR merged, main deployed
                                  Label → claude-done
 ```
 
-**Label state machine:** `claude` → `claude-wip` → `claude-review` (test on phone) → `claude-done` / back to `claude-wip` (feedback)
+**Label state machine:** `claude` → `claude-wip` → `claude-review` (test on phone) → `claude-done` / back to `claude-wip` (feedback). After merge, re-add `claude` + comment feedback for follow-ups (30-day window).
 
 - On success: branch auto-deployed to your phone, label set to `claude-review`
 - On `claude-review`: test on phone, comment feedback to iterate, or comment
@@ -117,6 +117,8 @@ Comment 'lgtm'           →      PR merged, main deployed
 - On rate limit: label reverts to `claude` (or `claude-waiting` if mid-conversation), retries next cycle
 - On crash recovery (poller restart): stuck `claude-wip` issues are
   re-queued, `claude-review` issues re-deploy their branch, `claude-waiting` issues continue waiting
+- Post-merge follow-ups: re-add `claude` label + comment feedback within 30 days
+  → Claude resumes with context on a `claude/issue-{n}-fix` branch
 - Max 10 conversation turns per issue (includes review feedback rounds)
 
 ### Tips for writing good issues
@@ -186,10 +188,11 @@ Remove the `claude-failed` label and re-add `claude` on the GitHub issue.
 
 ### Conversation state
 
-Per-issue state (session ID, turn count, timestamps) is stored in
+Per-issue state (session ID, turn count, timestamps, branch name) is stored in
 `logs/conversation_state.json`. This file is preserved across deploys and
-poller restarts. If deleted, any `claude-waiting` issues will be re-queued
-for a fresh attempt.
+poller restarts. Merged issues are archived (not deleted) for 30 days to
+support follow-up feedback. If the file is deleted, any `claude-waiting`
+issues will be re-queued for a fresh attempt.
 
 ## 7. Deploying updates
 

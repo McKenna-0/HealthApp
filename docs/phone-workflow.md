@@ -32,6 +32,11 @@ You (phone)                         Dell server
 
 4b. Looks good? Comment     →     PR merged, main deployed
     'lgtm'                          Label → claude-done
+
+5.  Found a problem after   →     Claude resumes with context,
+    merge? Re-add 'claude'          fixes on a new branch,
+    label + comment feedback        deploys for testing
+                                    (back to step 2)
 ```
 
 ## Step-by-Step
@@ -103,6 +108,21 @@ You can go back and forth up to 10 rounds.
 
 The poller will merge the PR, deploy main, and label the issue `claude-done`.
 
+### 6. Post-Merge Follow-Ups
+
+Found a problem after merging? You don't need a new issue.
+
+1. Go back to the original issue
+2. Comment with your feedback (what's wrong, what to change)
+3. Re-add the `claude` label
+
+Claude picks up the feedback, knows the previous implementation is already in
+main, and creates a targeted fix on a `claude/issue-{n}-fix` branch. The same
+test-and-iterate flow applies — comment feedback or `lgtm` as before.
+
+Follow-up context is kept for 30 days after merge. After that, the archived
+state is purged and re-adding the label starts a fresh implementation.
+
 ## Labels Reference
 
 | Label | Meaning |
@@ -111,7 +131,7 @@ The poller will merge the PR, deploy main, and label the issue `claude-done`.
 | `claude-wip` | Claude is actively working |
 | `claude-waiting` | Claude asked a question — reply to continue |
 | `claude-review` | Changes deployed, waiting for your feedback |
-| `claude-done` | Merged and deployed |
+| `claude-done` | Merged and deployed (re-add `claude` for follow-ups) |
 | `claude-failed` | Something went wrong — check the comment |
 
 ## What If...
