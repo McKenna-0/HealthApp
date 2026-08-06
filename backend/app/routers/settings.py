@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..db import get_db
+from ..services import targets
+from ..timeutil import today_local
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -49,6 +51,15 @@ def get_settings(db: Session = Depends(get_db)):
             else:
                 out[r.key] = float(r.value) if r.value else None
     return out
+
+
+@router.get("/targets")
+def daily_targets(
+    date: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Effective targets for a day, with active calories folded into the goal."""
+    return targets.resolve(db, date or today_local().isoformat())
 
 
 @router.put("")

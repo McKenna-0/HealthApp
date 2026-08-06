@@ -6,6 +6,7 @@ import {
   StickyNote, RefreshCw,
 } from 'lucide-react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
+import { useDailyTargets } from '../api/targets'
 import type { CheckinResponse, FoodLogRow, Meal, MfpStatus, StreakInfo } from '../api/types'
 import BottomSheet from '../components/BottomSheet'
 import CalorieDonut from '../components/CalorieDonut'
@@ -17,13 +18,6 @@ import Stepper from '../components/Stepper'
 
 const MEALS: Meal[] = ['breakfast', 'lunch', 'dinner', 'snack']
 const MOODS = ['😞', '😕', '😐', '🙂', '😄']
-
-interface Settings {
-  calorie_target: number | null
-  protein_target_g: number | null
-  carbs_target_g: number | null
-  fat_target_g: number | null
-}
 
 function todayIso() {
   const d = new Date()
@@ -564,10 +558,7 @@ export default function LogPage() {
     queryKey: ['streak'],
     queryFn: () => apiGet('/api/checkin/streak'),
   })
-  const { data: settings } = useQuery<Settings>({
-    queryKey: ['settings'],
-    queryFn: () => apiGet('/api/settings'),
-  })
+  const { data: targets } = useDailyTargets(date)
   const { data: mfpStatus } = useQuery<MfpStatus>({
     queryKey: ['mfp-status'],
     queryFn: () => apiGet('/api/mfp/status'),
@@ -603,10 +594,12 @@ export default function LogPage() {
   const totalF = entries.reduce((s, f) => s + (f.fat_g ?? 0), 0)
   const checkin = checkinResp?.checkin
 
-  const calTarget = settings?.calorie_target ?? null
-  const protTarget = settings?.protein_target_g ?? null
-  const carbTarget = settings?.carbs_target_g ?? null
-  const fatTarget = settings?.fat_target_g ?? null
+  const calGoal = targets?.calories
+  const macroRows = [
+    { label: 'Protein', value: totalP, part: targets?.protein, color: 'var(--green)' },
+    { label: 'Carbs', value: totalC, part: targets?.carbs, color: 'var(--amber)' },
+    { label: 'Fat', value: totalF, part: targets?.fat, color: '#a78bfa' },
+  ]
 
   // Chip button style
   const chipStyle = (active = false): React.CSSProperties => ({
@@ -719,31 +712,33 @@ export default function LogPage() {
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span className="text-caption">Calories</span>
-                <span className="text-caption">{Math.round(totalCal)}{calTarget ? ` / ${Math.round(calTarget)}` : ''}</span>
+                <span className="text-caption">{Math.round(totalCal)}{calGoal?.target ? ` / ${Math.round(calGoal.target)}` : ''}</span>
               </div>
-              <ProgressBar value={totalCal} target={calTarget} color="var(--accent)" />
+              <ProgressBar
+                value={totalCal}
+                target={calGoal?.base}
+                bonus={calGoal?.bonus ?? 0}
+                color="var(--accent)"
+                bonusColor="var(--amber)"
+              />
+              {calGoal?.base != null && calGoal.bonus > 0 && (
+                <div className="text-caption" style={{ marginTop: 3, color: 'var(--muted)' }}>
+                  {Math.round(calGoal.base)} goal{' '}
+                  <span style={{ color: 'var(--amber)' }}>+{Math.round(calGoal.bonus)} active</span>
+                </div>
+              )}
             </div>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className="text-caption">Protein</span>
-                <span className="text-caption">{Math.round(totalP)}g{protTarget ? ` / ${Math.round(protTarget)}g` : ''}</span>
+            {macroRows.map(({ label, value, part, color }) => (
+              <div key={label} style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="text-caption">{label}</span>
+                  <span className="text-caption">
+                    {Math.round(value)}g{part?.target ? ` / ${Math.round(part.target)}g` : ''}
+                  </span>
+                </div>
+                <ProgressBar value={value} target={part?.base} bonus={part?.bonus ?? 0} color={color} />
               </div>
-              <ProgressBar value={totalP} target={protTarget} color="var(--green)" />
-            </div>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className="text-caption">Carbs</span>
-                <span className="text-caption">{Math.round(totalC)}g{carbTarget ? ` / ${Math.round(carbTarget)}g` : ''}</span>
-              </div>
-              <ProgressBar value={totalC} target={carbTarget} color="var(--amber)" />
-            </div>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className="text-caption">Fat</span>
-                <span className="text-caption">{Math.round(totalF)}g{fatTarget ? ` / ${Math.round(fatTarget)}g` : ''}</span>
-              </div>
-              <ProgressBar value={totalF} target={fatTarget} color="#a78bfa" />
-            </div>
+            ))}
           </div>
         </div>
       </div>

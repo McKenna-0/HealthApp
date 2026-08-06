@@ -74,7 +74,10 @@ function TargetsCard() {
         fat_target_pct: form.fat_target_pct ? parseFloat(form.fat_target_pct) : null,
         daily_balance_target: form.daily_balance_target ? parseFloat(form.daily_balance_target) : null,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['targets'] })
+    },
   })
 
   const field = (key: keyof typeof form, label: string) => (
@@ -105,9 +108,12 @@ function TargetsCard() {
   return (
     <div className="card">
       <p className="text-title" style={{ marginBottom: 12 }}>Daily targets</p>
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row" style={{ marginBottom: 4 }}>
         {field('calorie_target', 'Calories')}
         {field('weight_goal_kg', 'Weight goal (kg)')}
+      </div>
+      <div className="text-caption" style={{ marginBottom: 12, color: 'var(--muted)' }}>
+        Active calories burned each day are added on top of this allowance
       </div>
 
       <div className="row" style={{ marginBottom: 4 }}>
@@ -146,7 +152,10 @@ function TargetsCard() {
               <span style={{ color: 'var(--red)' }}>(should be 100%)</span>
             )}
             {computedGrams && (
-              <span> = {computedGrams.protein}g P / {computedGrams.carbs}g C / {computedGrams.fat}g F</span>
+              <span>
+                {' '}= {computedGrams.protein}g P / {computedGrams.carbs}g C / {computedGrams.fat}g F
+                {' '}at {Math.round(calTarget)} kcal — grows with active calories
+              </span>
             )}
           </div>
         </>
