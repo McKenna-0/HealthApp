@@ -40,6 +40,7 @@ LABEL_REVIEW = "claude-review"
 
 MAX_CONVERSATION_TURNS = 10
 RETRY_COOLDOWN_HOURS = 2
+ARCHIVE_RETENTION_DAYS = 30
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "opus")
@@ -84,6 +85,29 @@ def cleanup_issue_state(issue_key: str) -> None:
     state = load_state()
     state.pop(issue_key, None)
     save_state(state)
+
+
+def archive_issue_state(issue_key: str) -> None:
+    """Mark an issue as completed but keep state for 30-day follow-ups."""
+    state = load_state()
+    if issue_key in state:
+        state[issue_key]["completed"] = True
+        state[issue_key]["completed_at"] = _now_iso()
+        save_state(state)
+
+
+def purge_expired_state() -> None:
+    """Remove archived issue state older than ARCHIVE_RETENTION_DAYS."""
+    state = load_state()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ARCHIVE_RETENTION_DAYS)
+              ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    expired = [k for k, v in state.items()
+               if v.get("completed") and v.get("completed_at", "") < cutoff]
+    for k in expired:
+        state.pop(k)
+        log.info("Purged archived state for issue #%s (older than %d days)", k, ARCHIVE_RETENTION_DAYS)
+    if expired:
+        save_state(state)
 
 
 def session_id_for_issue(issue_number: int) -> str:
@@ -201,49 +225,66 @@ def get_user_replies(issue_number: int, after_timestamp: str) -> list[str]:
 
 def detect_pr_created(issue_number: int) -> str | None:
     """Check if an open PR exists for this issue's branch. Returns URL or None."""
-    result = gh(
-        "pr", "list",
-        "--repo", REPO,
-        "--head", f"claude/issue-{issue_number}",
-        "--json", "url",
-        "--state", "open",
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        prs = json.loads(result.stdout)
-        return prs[0]["url"] if prs else None
-    except (json.JSONDecodeError, IndexError, KeyError):
-        return None
+    for suffix in ("", "-fix"):
+        result = gh(
+            "pr", "list",
+            "--repo", REPO,
+            "--head", f"claude/issue-{issue_number}{suffix}",
+            "--json", "url",
+            "--state", "open",
+        )
+        if result.returncode != 0:
+            continue
+        try:
+            prs = json.loads(result.stdout)
+            if prs:
+                return prs[0]["url"]
+        except (json.JSONDecodeError, IndexError, KeyError):
+            continue
+    return None
 
 
 def detect_commits_on_branch(issue_number: int) -> bool:
-    """Check if the claude branch has commits beyond main."""
-    branch = f"claude/issue-{issue_number}"
-    result = git("rev-list", "--count", f"main..{branch}")
-    if result.returncode != 0:
-        return False
-    try:
-        return int(result.stdout.strip()) > 0
-    except ValueError:
-        return False
+    """Check if the claude branch (or -fix variant) has commits beyond main."""
+    for suffix in ("", "-fix"):
+        branch = f"claude/issue-{issue_number}{suffix}"
+        result = git("rev-list", "--count", f"main..{branch}")
+        if result.returncode != 0:
+            continue
+        try:
+            if int(result.stdout.strip()) > 0:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
-def detect_pr_merged(issue_number: int) -> bool:
-    """Check if the PR for this issue has been merged."""
-    result = gh(
-        "pr", "list",
-        "--repo", REPO,
-        "--head", f"claude/issue-{issue_number}",
-        "--json", "url,mergedAt",
-        "--state", "merged",
-    )
-    if result.returncode != 0:
-        return False
-    try:
-        return len(json.loads(result.stdout)) > 0
-    except (json.JSONDecodeError, IndexError):
-        return False
+def detect_pr_merged(issue_number: int, *, branch: str | None = None) -> bool:
+    """Check if the PR for this issue has been merged.
+
+    If branch is given, only check that specific branch.
+    Otherwise check both the original and -fix branch.
+    """
+    branches = [branch] if branch else [
+        f"claude/issue-{issue_number}",
+        f"claude/issue-{issue_number}-fix",
+    ]
+    for b in branches:
+        result = gh(
+            "pr", "list",
+            "--repo", REPO,
+            "--head", b,
+            "--json", "url,mergedAt",
+            "--state", "merged",
+        )
+        if result.returncode != 0:
+            continue
+        try:
+            if len(json.loads(result.stdout)) > 0:
+                return True
+        except (json.JSONDecodeError, IndexError):
+            continue
+    return False
 
 
 # ── Git helpers ────────────────────────────────────────────────────────────
@@ -392,6 +433,22 @@ def process_issue(issue: dict, *, resume_text: str | None = None,
     if issue_key not in state:
         state[issue_key] = {"session_id": sid, "turn_count": 0}
     issue_state = state[issue_key]
+
+    # Re-triggered after merge: reset turn count, get feedback from comments
+    is_followup = False
+    if issue_state.get("completed"):
+        log.info("Issue #%d: re-triggered after merge, starting follow-up", number)
+        is_followup = True
+        completed_at = issue_state.get("completed_at", "")
+        issue_state.pop("completed", None)
+        issue_state.pop("completed_at", None)
+        issue_state["turn_count"] = 0
+        if resume_text is None:
+            feedback = get_user_replies(number, completed_at)
+            if feedback:
+                resume_text = "\n\n---\n\n".join(feedback)
+                resume_context = "review"
+
     issue_state["turn_count"] += 1
     save_state(state)
 
@@ -422,7 +479,28 @@ def process_issue(issue: dict, *, resume_text: str | None = None,
         issue_state["session_started"] = True
         save_state(state)
 
-    if resume_text is not None:
+    if is_followup and resume_text is not None:
+        body = issue.get("body") or "(no description)"
+        prompt = f"""Read the CLAUDE.md file for project context and coding conventions.
+
+FOLLOW-UP on issue #{number}: {title}
+
+{body}
+
+This issue was previously implemented and merged. The user has feedback:
+
+{resume_text}
+
+Fix this on a new branch 'claude/issue-{number}-fix' from main.
+The previous implementation is already in main — make targeted changes only.
+Run backend tests with `cd backend && uv run pytest` and frontend lint with `cd frontend && npm run lint`.
+Commit, push, and create a pull request referencing issue #{number}.
+
+Tech stack: FastAPI + SQLAlchemy/SQLite backend, React 19 + TypeScript + Vite frontend.
+Python managed with uv. Frontend uses React Query, Recharts, date-fns.
+"""
+        comment(number, f"Follow-up: resuming with your feedback (turn {issue_state['turn_count']})...")
+    elif resume_text is not None:
         if resume_context == "review":
             prompt = (f"The user tested your changes and has feedback:\n\n{resume_text}\n\n"
                       f"Address this feedback. Commit and push to the existing branch.")
@@ -530,7 +608,8 @@ def process_issue(issue: dict, *, resume_text: str | None = None,
                     break
 
         if pr_url or detect_commits_on_branch(number):
-            branch = f"claude/issue-{number}"
+            suffix = "-fix" if is_followup else ""
+            branch = f"claude/issue-{number}{suffix}"
             log.info("Issue #%d: deploying branch %s for review", number, branch)
             deployed = deploy_branch(branch)
             set_labels(number, add=[LABEL_REVIEW], remove=[LABEL_WIP])
@@ -547,6 +626,7 @@ def process_issue(issue: dict, *, resume_text: str | None = None,
                 state[issue_key] = {"session_id": sid, "turn_count": issue_state["turn_count"]}
             state[issue_key]["review_since"] = _now_iso()
             state[issue_key]["pr_url"] = pr_url
+            state[issue_key]["branch"] = branch
             save_state(state)
             stay_on_branch = True
             return True
@@ -609,12 +689,14 @@ def check_review_issues() -> None:
             log.info("Skipping review issue #%d — on cooldown", number)
             continue
 
-        if detect_pr_merged(number):
+        if detect_pr_merged(number, branch=issue_state.get("branch")):
             log.info("Issue #%d: PR merged, deploying main", number)
             deploy_main()
             set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
-            comment(number, "PR merged. Main branch deployed.")
-            cleanup_issue_state(issue_key)
+            comment(number, "PR merged. Main branch deployed.\n\n"
+                    "To request follow-up changes, re-add the `claude` label "
+                    "and comment your feedback.")
+            archive_issue_state(issue_key)
             continue
 
         review_since = issue_state.get("review_since")
@@ -631,19 +713,19 @@ def check_review_issues() -> None:
 
         if reply_body.strip().lower() == "lgtm":
             log.info("Issue #%d: user approved, merging PR", number)
-            merge_result = gh("pr", "merge",
-                              "--repo", REPO,
-                              "--head", f"claude/issue-{number}",
-                              "--merge")
-            if merge_result.returncode != 0:
-                pr_url = detect_pr_created(number)
-                if pr_url:
-                    pr_num = pr_url.rstrip("/").split("/")[-1]
-                    merge_result = gh("pr", "merge", pr_num, "--repo", REPO, "--merge")
+            pr_url = issue_state.get("pr_url") or detect_pr_created(number)
+            if pr_url:
+                pr_num = pr_url.rstrip("/").split("/")[-1]
+                merge_result = gh("pr", "merge", pr_num, "--repo", REPO, "--merge")
+            else:
+                branch = issue_state.get("branch", f"claude/issue-{number}")
+                merge_result = gh("pr", "merge", branch, "--repo", REPO, "--merge")
             deploy_main()
             set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
-            comment(number, "PR merged and main branch deployed.")
-            cleanup_issue_state(issue_key)
+            comment(number, "PR merged and main branch deployed.\n\n"
+                    "To request follow-up changes, re-add the `claude` label "
+                    "and comment your feedback.")
+            archive_issue_state(issue_key)
             continue
 
         log.info("Issue #%d got review feedback (%d comment(s)), resuming",
@@ -663,10 +745,12 @@ def recover_stuck_issues() -> None:
         log.info("Issue #%d is waiting for user reply", issue["number"])
 
     reviewing = get_issues_with_label(LABEL_REVIEW)
+    state = load_state()
     for issue in reviewing:
         number = issue["number"]
         log.info("Issue #%d is awaiting user review — ensuring branch is deployed", number)
-        branch = f"claude/issue-{number}"
+        issue_state = state.get(str(number), {})
+        branch = issue_state.get("branch", f"claude/issue-{number}")
         result = git("branch", "--list", branch)
         if result.stdout.strip():
             deploy_branch(branch)
@@ -698,6 +782,7 @@ def main() -> None:
 
             check_waiting_issues()
             check_review_issues()
+            purge_expired_state()
 
         except Exception:
             log.exception("Unexpected error in poll cycle")
