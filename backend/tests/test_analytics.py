@@ -6,7 +6,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app import models
 from app.db import Base
-from app.services.analytics import body_battery_factors, ewma_trend, ols_slope, readiness
+from app.services.analytics import (
+    body_battery_factors,
+    energy_balance,
+    ewma_trend,
+    ols_slope,
+    project_calories_out,
+    readiness,
+)
 
 
 def test_ols_slope_exact():
@@ -132,3 +139,48 @@ def test_body_battery_factors_sleep_and_activity(db):
 
 def test_body_battery_factors_empty_without_intraday_data(db):
     assert body_battery_factors(db, "2026-07-05") == []
+
+
+def test_project_calories_out_adds_remaining_resting_burn():
+    # 06:00: 500 burned, 400 of it resting -> 1600 resting for the full day,
+    # so 1200 resting kcal still to come on top of the 500 already burned
+    assert project_calories_out(500, 400, 0.25) == 1700
+
+
+def test_project_calories_out_is_a_noop_for_a_finished_day():
+    assert project_calories_out(2450, 1740, 1.0) == 2450
+
+
+def test_project_calories_out_without_bmr_or_burn():
+    assert project_calories_out(2450, None, 0.5) == 2450
+    assert project_calories_out(None, 1740, 0.5) is None
+
+
+def test_project_calories_out_clamps_just_after_midnight():
+    # 00:05 would extrapolate x288; clamped to a 1-hour floor (x24)
+    assert project_calories_out(6, 6, 0.0035) == project_calories_out(6, 6, 1 / 24)
+
+
+def test_energy_balance_projects_today_only(db):
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    for d, cout, bmr in ((yesterday, 2400, 1700), (today, 600, 500)):
+        db.add(models.DailyMetrics(
+            date=d.isoformat(), calories_total_out=cout, calories_bmr=bmr, source="garmin", synced_at="x",
+        ))
+        db.add(models.FoodLog(
+            date=d.isoformat(), ts="x", meal="lunch", calories=2000.0,
+            logging_complete_day=1, source="manual",
+        ))
+    db.commit()
+
+    rows = {r["date"]: r for r in energy_balance(db, yesterday.isoformat(), today.isoformat())}
+
+    done = rows[yesterday.isoformat()]
+    assert done["calories_out_projected"] == done["calories_out"] == 2400
+    assert done["balance_projected"] == done["balance"] == -400
+
+    now = rows[today.isoformat()]
+    assert now["calories_out"] == 600
+    assert now["calories_out_projected"] > 600
+    assert now["balance_projected"] == 2000 - now["calories_out_projected"]
