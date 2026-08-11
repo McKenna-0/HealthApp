@@ -17,3 +17,8 @@ backend/app/static/
 # local tooling artifacts
 pre-log.json
 post-log.json
+
+# Runtime logs on the deploy host. Must be ignored: deploy.sh runs
+# `git stash --include-untracked`, which was stashing the whole log
+# directory away mid-deploy and taking the poller/uvicorn logs with it.
+logs/

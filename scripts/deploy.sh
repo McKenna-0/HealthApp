@@ -14,26 +14,32 @@ bash scripts/build_frontend.sh
 echo "==> Pushing to origin..."
 # A failed push used to only warn, and the deploy carried on to pull a commit
 # that was never sent - so the Dell happily redeployed the previous release
-# while the new one sat on this laptop. There is nothing worth deploying past
-# this point, so fail here.
+# while the new one sat on this laptop. Nothing past this point is worth
+# doing if the code did not leave, so fail here.
 git push origin main
-
-echo "==> Copying frontend build to Dell..."
-scp -r backend/app/static "$DELL_HOST:~/$APP_DIR/backend/app/"
 
 echo "==> Connecting to Dell ($DELL_HOST)..."
 
+# The whole dance below exists because the poller also deploys. On startup it
+# redeploys every branch labelled claude-review: checks the branch out,
+# rebuilds the frontend into backend/app/static, restarts uvicorn. It has to
+# run in the middle - after the pull so it is the current build of the poller,
+# and before we put main back so it cannot overwrite us afterwards.
 ssh "$DELL_HOST" bash --login -s << REMOTE
 set -euo pipefail
 cd ~/$APP_DIR
+
+echo "==> Pulling latest code..."
+git stash --include-untracked 2>/dev/null || true
+git checkout main
+git pull --ff-only
 mkdir -p ~/$APP_DIR/logs
 POLLER_LOG=~/$APP_DIR/logs/poller.log
 touch \$POLLER_LOG
 
-# The poller is restarted FIRST, deliberately. On startup it redeploys every
-# branch labelled claude-review - checking the branch out, rebuilding the
-# frontend and restarting uvicorn. Restarting it last, as this script used to,
-# meant it overwrote the deploy seconds after the script reported success.
+# Restarted here, not at the end. Restarting it last meant its startup
+# redeploys landed seconds after this script printed "Deploy complete", so the
+# server ended up running whichever review branch it processed last.
 echo "==> Restarting GitHub poller..."
 LOG_MARK=\$(wc -l < \$POLLER_LOG)
 pkill -f "github_poller[.]py" 2>/dev/null || true
@@ -41,8 +47,9 @@ sleep 1
 nohup python3 ~/$APP_DIR/scripts/github_poller.py >> \$POLLER_LOG 2>&1 &
 disown
 
-# Only lines written after the restart count - the marker from a previous run
-# is still sitting in the log.
+# Only lines written after this restart count - the marker from the previous
+# run is still in the log. A poller predating the marker never matches, so the
+# timeout has to be survivable rather than fatal.
 echo "==> Waiting for poller startup redeploys to finish..."
 SETTLED=no
 for _ in \$(seq 1 72); do
@@ -55,13 +62,16 @@ done
 if [ "\$SETTLED" = yes ]; then
   echo "    poller settled"
 else
-  echo "    WARNING: poller still busy after 6 min; it may overwrite this deploy" >&2
+  echo "    WARNING: no settle marker after 6 min - continuing anyway." >&2
+  echo "    If this persists the Dell is running a poller from before the" >&2
+  echo "    marker was added; the next deploy will pick it up." >&2
 fi
 
-echo "==> Pulling latest code..."
+# The poller leaves the repo on whichever review branch it deployed last, so
+# main has to be re-asserted now that it is done.
+echo "==> Restoring main..."
 git stash --include-untracked 2>/dev/null || true
 git checkout main
-git pull --ff-only
 
 echo "==> Installing backend dependencies..."
 cd backend
@@ -69,7 +79,7 @@ uv sync
 
 # Bound to localhost because 'tailscale serve' fronts it with HTTPS. The
 # poller starts it the same way; binding 0.0.0.0 here made the app's exposure
-# depend on which of the two deployed last.
+# depend on which of the two had deployed last.
 echo "==> Restarting uvicorn..."
 pkill -f "uvicorn app[.]main" 2>/dev/null || true
 sleep 2
@@ -82,6 +92,12 @@ sleep 6
 curl -fsS --max-time 10 http://127.0.0.1:8000/api/health > /dev/null
 echo "    health OK, serving \$(git rev-parse --short HEAD)"
 REMOTE
+
+# Copied last, on purpose: the poller rebuilds the frontend into this exact
+# directory during its startup redeploys, so anything sent earlier gets
+# overwritten while we wait.
+echo "==> Copying frontend build to Dell..."
+scp -q -r backend/app/static "$DELL_HOST:~/$APP_DIR/backend/app/"
 
 # The symptom that started all this was the server quietly serving a different
 # bundle than the one just built, so check rather than assume.
