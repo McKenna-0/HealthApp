@@ -21,6 +21,13 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
+    # Two long holders of a write lock now coexist: a scheduled sync bulk-upserts
+    # for tens of seconds, and an agent turn keeps a connection across several
+    # tool calls plus a streamed reply. Observed a "database is locked" at 5s
+    # when a request arrived during the startup catch-up sync, so wait longer -
+    # a slow response beats a 500, and with one user contention is rare enough
+    # that the wait is never actually paid.
+    cursor.execute("PRAGMA busy_timeout=20000")
     cursor.close()
 
 

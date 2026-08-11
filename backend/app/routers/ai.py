@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,11 +8,6 @@ from ..db import get_db
 from ..services import ai_client, ai_report
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
-
-
-class ChatIn(BaseModel):
-    question: str = Field(min_length=2, max_length=2000)
-    history: list[dict] = Field(default_factory=list, max_length=12)
 
 
 def _report_out(r: models.AIReport, include_body: bool = True) -> dict:
@@ -31,11 +25,17 @@ def _report_out(r: models.AIReport, include_body: bool = True) -> dict:
 
 
 @router.get("/status")
-def status():
+def status(db: Session = Depends(get_db)):
+    """Reports and the agent can be configured independently, so a misconfigured
+    agent stays distinguishable from a misconfigured report model."""
+    agent = ai_client.resolve_agent_provider(db)
     return {
         "configured": ai_client.is_configured(),
         "model": settings.ai_model if ai_client.is_configured() else None,
         "base_url": settings.ai_base_url,
+        "agent_configured": agent.configured,
+        "agent_model": agent.model or None,
+        "agent_base_url": agent.base_url or None,
     }
 
 
@@ -73,16 +73,3 @@ def delete_report(report_id: int, db: Session = Depends(get_db)):
     db.delete(row)
     db.commit()
     return {"deleted": report_id}
-
-
-@router.post("/chat")
-def chat(body: ChatIn, db: Session = Depends(get_db)):
-    if not ai_client.is_configured():
-        raise HTTPException(400, "AI not configured - set AI_API_KEY in .env")
-    try:
-        answer = ai_report.answer_question(db, body.question, body.history)
-    except ai_client.AInot_configured as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"AI request failed: {type(exc).__name__}: {exc}")
-    return {"answer": answer}

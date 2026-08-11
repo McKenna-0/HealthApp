@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..timeutil import today_local
 
 MIN_CONTINUOUS_N = 10
 MIN_GROUP_N = 4
@@ -81,31 +82,45 @@ def _strength_binary(d: float) -> str:
 # ---- data frame ------------------------------------------------------------------
 
 
-def _build_frame(db: Session, days: int) -> dict[str, dict]:
-    end = date.today()
-    start = (end - timedelta(days=days - 1)).isoformat()
+def _build_frame(db: Session, days: int, end: str | None = None) -> dict[str, dict]:
+    end_s = (date.fromisoformat(end) if end else today_local()).isoformat()
+    start = (date.fromisoformat(end_s) - timedelta(days=days - 1)).isoformat()
 
     frame: dict[str, dict] = {}
 
     def row(d: str) -> dict:
         return frame.setdefault(d, {})
 
-    for m in db.scalars(select(models.DailyMetrics).where(models.DailyMetrics.date >= start)):
+    for m in db.scalars(
+        select(models.DailyMetrics).where(
+            models.DailyMetrics.date >= start, models.DailyMetrics.date <= end_s
+        )
+    ):
         r = row(m.date)
         r["hrv"] = m.hrv_last_night_avg
         r["rhr"] = m.resting_hr
         r["steps"] = m.steps
 
-    for s in db.scalars(select(models.Sleep).where(models.Sleep.date >= start)):
+    for s in db.scalars(
+        select(models.Sleep).where(models.Sleep.date >= start, models.Sleep.date <= end_s)
+    ):
         r = row(s.date)
         r["sleep_score"] = s.sleep_score
         r["sleep_duration"] = s.duration_min
 
-    for a in db.scalars(select(models.Activity).where(models.Activity.date >= start)):
+    for a in db.scalars(
+        select(models.Activity).where(
+            models.Activity.date >= start, models.Activity.date <= end_s
+        )
+    ):
         r = row(a.date)
         r["load"] = (r.get("load") or 0) + (a.training_load or 0)
 
-    for c in db.scalars(select(models.ContextLog).where(models.ContextLog.date >= start)):
+    for c in db.scalars(
+        select(models.ContextLog).where(
+            models.ContextLog.date >= start, models.ContextLog.date <= end_s
+        )
+    ):
         r = row(c.date)
         if c.type == "alcohol":
             r["alcohol"] = True
@@ -135,8 +150,8 @@ HYPOTHESES = [
 ]
 
 
-def compute_insights(db: Session, days: int = 90) -> dict:
-    frame = _build_frame(db, days)
+def compute_insights(db: Session, days: int = 90, end: str | None = None) -> dict:
+    frame = _build_frame(db, days, end)
     dates = sorted(frame.keys())
 
     insights = []
@@ -231,4 +246,9 @@ def compute_insights(db: Session, days: int = 90) -> dict:
 
         insights.append(insight)
 
-    return {"days": days, "note": NOTE, "insights": insights}
+    return {
+        "days": days,
+        "end": (date.fromisoformat(end) if end else today_local()).isoformat(),
+        "note": NOTE,
+        "insights": insights,
+    }

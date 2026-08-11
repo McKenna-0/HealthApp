@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
-from ..timeutil import iso_now
+from ..services import context as context_service
 
 router = APIRouter(prefix="/api/context", tags=["context"])
 
@@ -16,22 +16,14 @@ def list_context(
     type: str | None = None,
     db: Session = Depends(get_db),
 ):
-    q = select(models.ContextLog)
-    if start:
-        q = q.where(models.ContextLog.date >= start)
-    if end:
-        q = q.where(models.ContextLog.date <= end)
-    if type:
-        q = q.where(models.ContextLog.type == type)
-    return db.scalars(q.order_by(models.ContextLog.date, models.ContextLog.ts)).all()
+    return context_service.list_entries(
+        db, start=start, end=end, types=[type] if type else None
+    )
 
 
 @router.post("", response_model=schemas.ContextOut)
 def add_context(body: schemas.ContextIn, db: Session = Depends(get_db)):
-    row = models.ContextLog(ts=iso_now(), **body.model_dump())
-    db.add(row)
-    db.commit()
-    return row
+    return context_service.add_entry(db, **body.model_dump())
 
 
 @router.delete("/{ctx_id}")

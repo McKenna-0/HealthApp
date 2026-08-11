@@ -341,3 +341,74 @@ class IntradayStress(Base):
     timestamp: Mapped[str] = mapped_column(Text)
     stress_level: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(Text)
+
+
+class AIChatSession(Base):
+    """One saved agent conversation."""
+
+    __tablename__ = "ai_chat_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(Text, index=True)
+    title: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)  # base URL at creation
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AIChatMessage(Base):
+    """A message in the provider's wire format, stored faithfully enough to
+    replay: an assistant message's tool_calls[].id must still pair with the
+    tool_call_id of the tool message that answers it."""
+
+    __tablename__ = "ai_chat_message"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ai_chat_session.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(Text)  # user | assistant | tool
+    content: Mapped[str | None] = mapped_column(Text)
+    tool_calls_json: Mapped[str | None] = mapped_column(Text)
+    tool_call_id: Mapped[str | None] = mapped_column(Text)
+    tool_name: Mapped[str | None] = mapped_column(Text)
+    trace_summary: Mapped[str | None] = mapped_column(Text)
+    token_estimate: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(Text)
+
+
+class AIPendingAction(Base):
+    """A write the agent has drafted but not performed.
+
+    The agent never writes to weight_log / food_log / context_log itself; it puts
+    a row here and the user confirms it. `status` is what makes a confirm
+    idempotent - a second confirm has nothing left to act on."""
+
+    __tablename__ = "ai_pending_action"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ai_chat_session.id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[int | None] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(Text)  # log_weight | log_food | log_context
+    payload_json: Mapped[str] = mapped_column(Text)
+    summary_text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="pending")  # pending|confirmed|rejected
+    created_at: Mapped[str] = mapped_column(Text)
+    resolved_at: Mapped[str | None] = mapped_column(Text)
+    resolved_result_json: Mapped[str | None] = mapped_column(Text)
+
+
+class LiteratureCache(Base):
+    """Europe PMC search results, cached so repeat questions cost no round-trip.
+
+    Only the query string is ever sent to Europe PMC - never health data."""
+
+    __tablename__ = "literature_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query_norm: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    results_json: Mapped[str] = mapped_column(Text)
+    fetched_at: Mapped[str] = mapped_column(Text)

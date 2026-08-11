@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..config import settings
 from ..db import get_db
-from ..services import food_lookup
+from ..services import food, food_lookup
 from ..services.food_lookup import _parse_serving_grams
 from ..timeutil import iso_now
 
@@ -39,48 +39,23 @@ def search(
     return rows or food_lookup.search_cache(db, q)
 
 
-def _compute_entry(body: schemas.FoodLogIn, db: Session) -> dict:
-    """Resolve calories/macros either from a cache item + grams or free-text kcal."""
-    if body.food_cache_id is not None:
-        item = db.get(models.FoodCache, body.food_cache_id)
-        if not item:
-            raise HTTPException(404, "food_cache_id not found")
-        if body.quantity_g is None:
-            raise HTTPException(422, "quantity_g required when using a food item")
-        factor = body.quantity_g / 100.0
-        return {
-            "description": body.description or item.name,
-            "quantity_g": body.quantity_g,
-            "calories": round((item.kcal_per_100g or 0) * factor, 1),
-            "protein_g": round(item.protein_g * factor, 1) if item.protein_g is not None else None,
-            "carbs_g": round(item.carbs_g * factor, 1) if item.carbs_g is not None else None,
-            "fat_g": round(item.fat_g * factor, 1) if item.fat_g is not None else None,
-        }
-    if body.calories is None:
-        raise HTTPException(422, "calories required for free-text entries")
-    return {
-        "description": body.description,
-        "quantity_g": body.quantity_g,
-        "calories": body.calories,
-        "protein_g": None,
-        "carbs_g": None,
-        "fat_g": None,
-    }
-
-
 @router.post("/log", response_model=schemas.FoodLogOut)
 def add_log(body: schemas.FoodLogIn, db: Session = Depends(get_db)):
-    computed = _compute_entry(body, db)
-    row = models.FoodLog(
-        date=body.date,
-        ts=body.ts or iso_now(),
-        meal=body.meal,
-        food_cache_id=body.food_cache_id,
-        **computed,
-    )
-    db.add(row)
-    db.commit()
-    return row
+    try:
+        return food.log_manual_entry(
+            db,
+            date=body.date,
+            meal=body.meal,
+            food_cache_id=body.food_cache_id,
+            description=body.description,
+            quantity_g=body.quantity_g,
+            calories=body.calories,
+            ts=body.ts,
+        )
+    except food.FoodNotFound as exc:
+        raise HTTPException(404, str(exc))
+    except food.FoodInvalid as exc:
+        raise HTTPException(422, str(exc))
 
 
 @router.get("/log", response_model=list[schemas.FoodLogOut])

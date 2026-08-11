@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
-from ..timeutil import iso_now
+from ..services.weight import upsert_manual_weight
 
 router = APIRouter(prefix="/api/weight", tags=["weight"])
 
@@ -23,27 +23,7 @@ def list_weights(
 
 @router.post("", response_model=schemas.WeightOut)
 def add_weight(body: schemas.WeightIn, db: Session = Depends(get_db)):
-    existing = db.scalar(
-        select(models.WeightLog).where(
-            models.WeightLog.date == body.date, models.WeightLog.source == "manual"
-        )
-    )
-    if existing:
-        existing.weight_kg = body.weight_kg
-        existing.note = body.note
-        existing.ts = iso_now()
-        db.commit()
-        return existing
-    row = models.WeightLog(
-        date=body.date,
-        ts=iso_now(),
-        weight_kg=body.weight_kg,
-        source="manual",
-        note=body.note,
-    )
-    db.add(row)
-    db.commit()
-    return row
+    return upsert_manual_weight(db, body.date, body.weight_kg, body.note)
 
 
 @router.delete("/{weight_id}")

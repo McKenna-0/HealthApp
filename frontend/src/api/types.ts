@@ -536,3 +536,70 @@ export interface TimeSeriesPoint {
   elevation_m: number | null
   cadence: number | null
 }
+
+// ---- AI agent chat ----
+
+export interface AIStatus {
+  configured: boolean
+  model: string | null
+  base_url: string
+  agent_configured: boolean
+  agent_model: string | null
+  agent_base_url: string | null
+}
+
+export interface ChatSession {
+  id: number
+  created_at: string
+  updated_at: string
+  title: string | null
+  model: string | null
+  provider: string | null
+  message_count: number
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant' | 'tool'
+  content: string | null
+  tool_calls: { id: string | null; name: string | null; arguments: string | null }[] | null
+  tool_call_id: string | null
+  tool_name: string | null
+  trace_summary: string | null
+  created_at: string
+}
+
+export interface PendingAction {
+  id: number
+  session_id: number
+  kind: 'log_weight' | 'log_food' | 'log_context'
+  summary_text: string
+  status: 'pending' | 'confirmed' | 'rejected' | 'failed'
+  payload: Record<string, unknown>
+  created_at: string
+  resolved_at: string | null
+  result: { table?: string; id?: number; error?: string } | null
+}
+
+export interface ChatSessionDetail extends ChatSession {
+  messages: ChatMessage[]
+  pending_actions: PendingAction[]
+}
+
+export interface AIProvider {
+  base_url: string
+  model: string
+  api_key_set: boolean
+  configured: boolean
+  is_openrouter: boolean
+  privacy_routing: boolean
+  overridden: Record<string, boolean>
+}
+
+export interface AIModelOption {
+  id: string
+  name: string
+  context_length: number | null
+  prompt_price: string | null
+  completion_price: string | null
+}

@@ -15,6 +15,7 @@ import RoutinesPage from './pages/RoutinesPage'
 import BloodworkPage from './pages/BloodworkPage'
 import InsightsPage from './pages/InsightsPage'
 import AIPage from './pages/AIPage'
+import AIChatPage from './pages/AIChatPage'
 import SettingsPage from './pages/SettingsPage'
 
 const TABS = [
@@ -32,7 +33,7 @@ export default function App() {
     if (location.pathname === '/log') return 'Log'
     if (location.pathname.startsWith('/workouts')) return 'Workouts'
     if (location.pathname === '/settings') return 'Settings'
-    if (location.pathname === '/ai') return 'AI'
+    if (location.pathname.startsWith('/ai')) return 'AI'
     if (location.pathname === '/insights') return 'Insights'
     if (location.pathname === '/bloodwork') return 'Bloodwork'
     return ''
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/bloodwork" element={<BloodworkPage />} />
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/ai" element={<AIPage />} />
+        <Route path="/ai/chat/:sessionId" element={<AIChatPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
 

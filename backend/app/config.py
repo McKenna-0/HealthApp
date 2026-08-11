@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     ai_model: str = "meta-llama/llama-3.3-70b-instruct"
     ai_vision_model: str = "google/gemini-2.0-flash-001"
 
+    # Agentic chat. Its own provider triple so chat can run on a stronger (or more
+    # private) endpoint than the weekly report without changing either. Empty
+    # base_url/api_key fall back to the ai_* values above.
+    ai_agent_base_url: str = ""
+    ai_agent_api_key: str = ""
+    ai_agent_model: str = "deepseek/deepseek-v4-flash"
+    # Ask the provider to route only to endpoints that don't retain/train on data.
+    # Honoured by OpenRouter; ignored elsewhere.
+    ai_require_zdr: bool = True
+
     sync_lookback_days: int = 7
     catchup_after_hours: int = 12
 
@@ -36,6 +46,7 @@ class Settings(BaseSettings):
         "data_source", "tz", "garmin_email", "garmin_password",
         "usda_api_key", "ai_base_url", "ai_api_key", "ai_model",
         "ai_vision_model",
+        "ai_agent_base_url", "ai_agent_api_key", "ai_agent_model",
         mode="before",
     )
     @classmethod

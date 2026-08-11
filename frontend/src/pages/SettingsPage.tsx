@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
-import type { HealthStatus, MfpStatus, SyncLogRow } from '../api/types'
+import type { AIModelOption, AIProvider, HealthStatus, MfpStatus, SyncLogRow } from '../api/types'
 import {
   getNotificationConfig,
   saveNotificationConfig,
@@ -322,6 +322,205 @@ function MfpCard() {
   )
 }
 
+function perMillion(price: string | null): string | null {
+  const n = Number(price)
+  if (!price || Number.isNaN(n)) return null
+  return `$${(n * 1e6).toFixed(2)}/M`
+}
+
+function AIProviderCard() {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [baseUrl, setBaseUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [filter, setFilter] = useState('')
+  const [browsing, setBrowsing] = useState(false)
+
+  const provider = useQuery({
+    queryKey: ['ai-provider'],
+    queryFn: () => apiGet<AIProvider>('/api/ai/provider'),
+  })
+
+  // Never hardcoded: the catalogue is provider- and host-specific, and models
+  // without tool-calling support simply won't work as the agent.
+  const models = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: () => apiGet<{ models: AIModelOption[] }>('/api/ai/models'),
+    enabled: browsing,
+    staleTime: 60 * 60 * 1000,
+  })
+
+  const save = useMutation({
+    mutationFn: (patch: Partial<Record<'base_url' | 'api_key' | 'model', string>>) =>
+      apiPut<AIProvider>('/api/ai/provider', patch),
+    onSuccess: () => {
+      setApiKey('')
+      qc.invalidateQueries({ queryKey: ['ai-provider'] })
+      qc.invalidateQueries({ queryKey: ['ai-status'] })
+      qc.invalidateQueries({ queryKey: ['ai-models'] })
+    },
+  })
+
+  const reset = useMutation({
+    mutationFn: () => apiDelete<AIProvider>('/api/ai/provider'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-provider'] })
+      qc.invalidateQueries({ queryKey: ['ai-status'] })
+    },
+  })
+
+  const p = provider.data
+  const needle = filter.trim().toLowerCase()
+  const matches = (models.data?.models ?? [])
+    .filter((m) => !needle || m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle))
+    .slice(0, 25)
+
+  return (
+    <div className="card">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div style={{ minWidth: 0 }}>
+          <p className="text-body" style={{ margin: 0, fontWeight: 600 }}>AI assistant</p>
+          <p className="text-caption" style={{ margin: '2px 0 0', wordBreak: 'break-all' }}>
+            {p ? `${p.model || 'no model'} · ${p.base_url || 'no endpoint'}` : '…'}
+          </p>
+        </div>
+        <span className={`badge fixed ${p?.configured ? 'garmin' : ''}`}>
+          {p?.configured ? 'Ready' : 'Not set'}
+        </span>
+      </div>
+
+      <p className="text-caption" style={{ margin: '8px 0 0' }}>
+        {p?.privacy_routing
+          ? 'Routing only to endpoints that do not retain or train on prompts.'
+          : p?.is_openrouter
+            ? 'Privacy routing is off — set AI_REQUIRE_ZDR=true to restrict which hosts see your data.'
+            : 'Whoever hosts this endpoint can see every prompt, including your health data. Open weights alone do not make a request private.'}
+      </p>
+
+      <button
+        className="secondary"
+        onClick={() => setOpen(!open)}
+        style={{ width: '100%', marginTop: 10, minHeight: 44 }}
+      >
+        {open ? 'Hide' : 'Change provider'}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <label className="text-caption">Endpoint (OpenAI-compatible)</label>
+          <input
+            placeholder={p?.base_url || 'https://openrouter.ai/api/v1'}
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            autoCapitalize="off"
+            autoCorrect="off"
+            style={{ width: '100%', margin: '4px 0 10px' }}
+          />
+
+          <label className="text-caption">
+            API key {p?.api_key_set ? '(one is already saved)' : ''}
+          </label>
+          <input
+            type="password"
+            placeholder="Paste a key to replace the saved one"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            autoComplete="off"
+            style={{ width: '100%', margin: '4px 0 10px' }}
+          />
+
+          <button
+            onClick={() =>
+              save.mutate({
+                ...(baseUrl.trim() ? { base_url: baseUrl.trim() } : {}),
+                ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+              })
+            }
+            disabled={save.isPending || (!baseUrl.trim() && !apiKey.trim())}
+            style={{ width: '100%', minHeight: 44 }}
+          >
+            {save.isPending ? 'Saving…' : 'Save endpoint & key'}
+          </button>
+
+          <button
+            className="secondary"
+            onClick={() => setBrowsing(true)}
+            style={{ width: '100%', marginTop: 8, minHeight: 44 }}
+          >
+            {browsing ? 'Models loaded below' : 'Choose model'}
+          </button>
+
+          {browsing && (
+            <>
+              {models.isLoading && <p className="text-caption" style={{ marginTop: 8 }}>Loading catalogue…</p>}
+              {models.isError && (
+                <p className="text-caption" style={{ marginTop: 8, color: 'var(--red)' }}>
+                  {String(models.error).replace(/^\d+: /, '').slice(0, 200)}
+                </p>
+              )}
+              {models.data && (
+                <>
+                  <input
+                    placeholder="Filter models…"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    autoCapitalize="off"
+                    style={{ width: '100%', margin: '8px 0' }}
+                  />
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    {matches.map((m) => (
+                      <div
+                        key={m.id}
+                        className="list-item"
+                        onClick={() => save.mutate({ model: m.id })}
+                        style={{ cursor: 'pointer', minHeight: 44 }}
+                      >
+                        <div className="main">
+                          <div className="name" style={{ wordBreak: 'break-all' }}>{m.id}</div>
+                          <div className="detail">
+                            {[
+                              perMillion(m.prompt_price) && `${perMillion(m.prompt_price)} in`,
+                              perMillion(m.completion_price) && `${perMillion(m.completion_price)} out`,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || 'price unknown'}
+                            {m.context_length ? ` · ${Math.round(m.context_length / 1000)}k ctx` : ''}
+                          </div>
+                        </div>
+                        {p?.model === m.id && <span className="badge fixed garmin">Active</span>}
+                      </div>
+                    ))}
+                    {matches.length === 0 && <p className="text-caption">No matches.</p>}
+                  </div>
+                  <p className="text-caption" style={{ marginTop: 6 }}>
+                    The agent needs a model that supports tool calling — most current chat models do,
+                    but a base or completion-only model will fail on the first question.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+
+          {save.isError && (
+            <p className="text-caption" style={{ marginTop: 6, color: 'var(--red)' }}>
+              {String(save.error).replace(/^\d+: /, '').slice(0, 200)}
+            </p>
+          )}
+
+          <button
+            className="secondary"
+            onClick={() => { if (confirm('Reset AI provider to the .env defaults?')) reset.mutate() }}
+            disabled={reset.isPending}
+            style={{ width: '100%', marginTop: 8, minHeight: 44 }}
+          >
+            Reset to .env defaults
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const METRIC_DEFS: Record<string, { label: string }> = {
   hrv: { label: 'HRV' },
   sleep_score: { label: 'Sleep Score' },
@@ -556,6 +755,8 @@ export default function SettingsPage() {
       </div>
 
       <MfpCard />
+
+      <AIProviderCard />
 
       {/* Data */}
       <p className="settings-section-header">Data</p>

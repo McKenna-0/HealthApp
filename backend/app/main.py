@@ -47,6 +47,7 @@ def health():
 
 from .routers import (  # noqa: E402
     ai,
+    ai_chat,
     analytics,
     bloodwork,
     checkin,
@@ -75,6 +76,7 @@ app.include_router(exercises.router)
 app.include_router(routines.router)
 app.include_router(bloodwork.router)
 app.include_router(ai.router)
+app.include_router(ai_chat.router)
 app.include_router(mfp.router)
 
 # Serve built frontend (SPA) if present.

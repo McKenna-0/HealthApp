@@ -38,15 +38,6 @@ self-treating. You are not a physician.
 - End with one line: "*This is automated analysis of self-tracked data, not medical advice.*"
 """
 
-CHAT_SYSTEM_PROMPT = """You are an evidence-based health and fitness analyst. Answer the user's \
-question using ONLY the data summary provided below. If the data cannot answer the question, say so \
-plainly. Be concise. Do not invent numbers or cite unverifiable studies. Wearable metrics are \
-estimates. You are not a physician; flag anything that warrants a doctor's input.
-
-DATA SUMMARY:
-"""
-
-
 def generate_report(db: Session, kind: str = "on_demand", days: int = 30) -> models.AIReport:
     summary = compose_summary(db, days)
     row = models.AIReport(
@@ -80,15 +71,3 @@ def generate_report(db: Session, kind: str = "on_demand", days: int = 30) -> mod
     db.add(row)
     db.commit()
     return row
-
-
-def answer_question(db: Session, question: str, history: list[dict] | None = None) -> str:
-    summary = compose_summary(db, 30)
-    messages: list[dict] = [
-        {"role": "system", "content": CHAT_SYSTEM_PROMPT + json.dumps(summary, indent=1)}
-    ]
-    for m in (history or [])[-6:]:
-        if m.get("role") in ("user", "assistant") and m.get("content"):
-            messages.append({"role": m["role"], "content": m["content"]})
-    messages.append({"role": "user", "content": question})
-    return ai_client.chat(messages, max_tokens=1500)

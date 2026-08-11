@@ -6,6 +6,11 @@ Ranges are typical adult reference intervals — labs vary; users should prefer
 the range printed on their own lab report.
 """
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from .. import models
+
 MARKER_REFERENCE: dict[str, dict] = {
     # lipids
     "Total Cholesterol": {"unit": "mmol/L", "low": None, "high": 5.0, "group": "Lipids"},
@@ -56,3 +61,53 @@ def out_of_range(value: float, low: float | None, high: float | None) -> str | N
     if high is not None and value > high:
         return "high"
     return None
+
+
+# ---- panel / marker queries ------------------------------------------------------
+# Shared by the bloodwork router and the AI agent's tools, so both see the same
+# shapes and the same out-of-range flagging.
+
+
+def result_out(r: models.BloodResult) -> dict:
+    return {
+        "id": r.id,
+        "marker": r.marker,
+        "value": r.value,
+        "unit": r.unit,
+        "ref_low": r.ref_low,
+        "ref_high": r.ref_high,
+        "flag": out_of_range(r.value, r.ref_low, r.ref_high),
+    }
+
+
+def panel_out(db: Session, p: models.BloodPanel) -> dict:
+    results = db.scalars(
+        select(models.BloodResult).where(models.BloodResult.panel_id == p.id)
+    ).all()
+    return {
+        "id": p.id,
+        "date": p.date,
+        "lab_name": p.lab_name,
+        "note": p.note,
+        "results": [result_out(r) for r in results],
+    }
+
+
+def list_panels(db: Session, limit: int | None = None) -> list[dict]:
+    """Panels newest first, each with its full result set."""
+    q = select(models.BloodPanel).order_by(models.BloodPanel.date.desc())
+    if limit:
+        q = q.limit(limit)
+    return [panel_out(db, p) for p in db.scalars(q).all()]
+
+
+def marker_history(db: Session, marker: str) -> list[dict]:
+    """Every recorded value for one marker, oldest first. All-time: bloodwork is
+    low-volume and a trend across years is the whole point."""
+    rows = db.execute(
+        select(models.BloodResult, models.BloodPanel.date)
+        .join(models.BloodPanel, models.BloodResult.panel_id == models.BloodPanel.id)
+        .where(models.BloodResult.marker == marker)
+        .order_by(models.BloodPanel.date)
+    ).all()
+    return [{"date": d, **result_out(r)} for r, d in rows]

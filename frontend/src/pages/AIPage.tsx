@@ -1,15 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Send, Trash2, Zap, CalendarDays } from 'lucide-react'
+import { MessageSquarePlus, Trash2, Zap, CalendarDays } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { apiDelete, apiGet, apiPost } from '../api/client'
+import type { AIStatus, ChatSession } from '../api/types'
 import SwipeToDelete from '../components/SwipeToDelete'
-
-interface AIStatus {
-  configured: boolean
-  model: string | null
-  base_url: string
-}
 
 interface ReportMeta {
   id: number
@@ -26,49 +22,54 @@ interface Report extends ReportMeta {
   report_md: string
 }
 
-interface ChatMsg {
-  role: 'user' | 'assistant'
-  content: string
-}
-
 export default function AIPage() {
-  const [tab, setTab] = useState<'reports' | 'chat'>('reports')
+  const [tab, setTab] = useState<'chat' | 'reports'>('chat')
   const status = useQuery({
     queryKey: ['ai-status'],
     queryFn: () => apiGet<AIStatus>('/api/ai/status'),
   })
 
-  if (status.data && !status.data.configured) {
-    return (
-      <>
-        <h1>AI Analyst</h1>
-        <div className="card">
-          <p className="text-title" style={{ marginBottom: 8 }}>Not configured</p>
-          <p className="muted">
-            Get a key at openrouter.ai/keys, then set <code>AI_API_KEY</code> in your <code>.env</code> file and
-            restart the backend. Reports cost pennies with open models. Prefer paid models with no-logging
-            policies for privacy.
-          </p>
-        </div>
-      </>
-    )
-  }
+  // The agent and the report writer are configured separately, so a missing key
+  // for one shouldn't blank out the other.
+  const model = tab === 'chat' ? status.data?.agent_model : status.data?.model
+  const ready = tab === 'chat' ? status.data?.agent_configured : status.data?.configured
 
   return (
     <>
       <h1>AI Analyst</h1>
       <p className="text-caption" style={{ margin: '0 4px 12px' }}>
-        Model: {status.data?.model ?? '…'}
+        Model: {model ?? '…'}
       </p>
       <div className="tabs">
-        {(['reports', 'chat'] as const).map((t) => (
+        {(['chat', 'reports'] as const).map((t) => (
           <button key={t} className={`chip ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
-      {tab === 'reports' ? <ReportsTab /> : <ChatTab />}
+      {status.data && !ready ? (
+        <NotConfigured which={tab} />
+      ) : tab === 'chat' ? (
+        <ChatTab />
+      ) : (
+        <ReportsTab />
+      )}
     </>
+  )
+}
+
+function NotConfigured({ which }: { which: 'chat' | 'reports' }) {
+  return (
+    <div className="card">
+      <p className="text-title" style={{ marginBottom: 8 }}>Not configured</p>
+      <p className="muted">
+        {which === 'chat'
+          ? 'Set a model and API key under Settings › AI assistant. The model must support tool calling.'
+          : 'Set AI_API_KEY in your .env file and restart the backend.'}{' '}
+        Open models cost pennies. Prefer providers that don't retain or train on your prompts — open
+        weights alone don't make a request private.
+      </p>
+    </div>
   )
 }
 
@@ -163,69 +164,69 @@ function ReportsTab() {
 }
 
 function ChatTab() {
-  const [messages, setMessages] = useState<ChatMsg[]>([])
-  const [input, setInput] = useState('')
+  const qc = useQueryClient()
+  const navigate = useNavigate()
 
-  const ask = useMutation({
-    mutationFn: (question: string) =>
-      apiPost<{ answer: string }>('/api/ai/chat', { question, history: messages }),
-    onSuccess: (data, question) => {
-      setMessages((m) => [...m, { role: 'user', content: question }, { role: 'assistant', content: data.answer }])
+  const sessions = useQuery({
+    queryKey: ['ai-sessions'],
+    queryFn: () => apiGet<ChatSession[]>('/api/ai/sessions'),
+  })
+
+  const create = useMutation({
+    mutationFn: () => apiPost<ChatSession>('/api/ai/sessions'),
+    onSuccess: (s) => {
+      qc.invalidateQueries({ queryKey: ['ai-sessions'] })
+      navigate(`/ai/chat/${s.id}`)
     },
   })
 
-  const send = () => {
-    const q = input.trim()
-    if (!q) return
-    setInput('')
-    ask.mutate(q)
-  }
+  const remove = useMutation({
+    mutationFn: (id: number) => apiDelete(`/api/ai/sessions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-sessions'] }),
+  })
+
+  const rows = sessions.data ?? []
 
   return (
     <>
-      <div className="chat-messages">
-        {messages.length === 0 && (
-          <div className="card">
-            <p className="muted">
-              Ask about your data — e.g. "How did alcohol affect my sleep this month?" or "Am I eating enough
-              protein for my training?"
-            </p>
-          </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={`chat-msg ${m.role}`}>
-            {m.role === 'assistant' ? (
-              <div className="report-md">
-                <ReactMarkdown>{m.content}</ReactMarkdown>
-              </div>
-            ) : (
-              m.content
-            )}
-          </div>
-        ))}
-        {ask.isPending && (
-          <div className="chat-msg assistant">
-            <span className="muted">Thinking…</span>
-          </div>
-        )}
-        {ask.isError && <p className="error-text">{String(ask.error).replace(/^\d+: /, '').slice(0, 200)}</p>}
-      </div>
+      <button
+        style={{ width: '100%', marginBottom: 12, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        onClick={() => create.mutate()}
+        disabled={create.isPending}
+      >
+        <MessageSquarePlus size={16} />
+        New chat
+      </button>
+      {create.isError && (
+        <p className="error-text">{String(create.error).replace(/^\d+: /, '').slice(0, 200)}</p>
+      )}
 
-      <div className="chat-input-bar">
-        <input
-          placeholder="Ask about your health data…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-        />
-        <button
-          className="fixed"
-          onClick={send}
-          disabled={ask.isPending || !input.trim()}
-          style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          <Send size={16} />
-        </button>
+      <div className="card">
+        <p className="text-title" style={{ marginBottom: 8 }}>Conversations</p>
+        {rows.length === 0 && (
+          <p className="muted">
+            No chats yet. The assistant can read your whole history — not just the last month — and
+            will tell you when the data isn't there instead of guessing.
+          </p>
+        )}
+        {rows.map((s) => (
+          <SwipeToDelete key={s.id} onDelete={() => remove.mutate(s.id)}>
+            <div
+              className="list-item"
+              onClick={() => navigate(`/ai/chat/${s.id}`)}
+              style={{ cursor: 'pointer', minHeight: 44 }}
+            >
+              <div className="main">
+                <div className="name">{s.title ?? 'New chat'}</div>
+                <div className="detail">
+                  {s.updated_at.slice(0, 10)} · {s.message_count} message
+                  {s.message_count === 1 ? '' : 's'}
+                </div>
+              </div>
+              <Trash2 size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            </div>
+          </SwipeToDelete>
+        ))}
       </div>
     </>
   )

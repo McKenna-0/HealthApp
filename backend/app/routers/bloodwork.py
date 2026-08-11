@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..db import get_db
-from ..services.bloodwork import catalogue, out_of_range
+from ..services import bloodwork as bloodwork_service
+from ..services.bloodwork import catalogue, panel_out
 from ..timeutil import iso_now
 
 router = APIRouter(prefix="/api/bloodwork", tags=["bloodwork"])
@@ -26,31 +27,6 @@ class PanelIn(BaseModel):
     results: list[ResultIn] = Field(min_length=1)
 
 
-def _result_out(r: models.BloodResult) -> dict:
-    return {
-        "id": r.id,
-        "marker": r.marker,
-        "value": r.value,
-        "unit": r.unit,
-        "ref_low": r.ref_low,
-        "ref_high": r.ref_high,
-        "flag": out_of_range(r.value, r.ref_low, r.ref_high),
-    }
-
-
-def _panel_out(db: Session, p: models.BloodPanel) -> dict:
-    results = db.scalars(
-        select(models.BloodResult).where(models.BloodResult.panel_id == p.id)
-    ).all()
-    return {
-        "id": p.id,
-        "date": p.date,
-        "lab_name": p.lab_name,
-        "note": p.note,
-        "results": [_result_out(r) for r in results],
-    }
-
-
 @router.get("/markers")
 def markers():
     return catalogue()
@@ -58,10 +34,7 @@ def markers():
 
 @router.get("/panels")
 def list_panels(db: Session = Depends(get_db)):
-    panels = db.scalars(
-        select(models.BloodPanel).order_by(models.BloodPanel.date.desc())
-    ).all()
-    return [_panel_out(db, p) for p in panels]
+    return bloodwork_service.list_panels(db)
 
 
 @router.post("/panels")
@@ -74,7 +47,7 @@ def add_panel(body: PanelIn, db: Session = Depends(get_db)):
     for r in body.results:
         db.add(models.BloodResult(panel_id=panel.id, **r.model_dump()))
     db.commit()
-    return _panel_out(db, panel)
+    return panel_out(db, panel)
 
 
 @router.delete("/panels/{panel_id}")
@@ -93,10 +66,4 @@ def delete_panel(panel_id: int, db: Session = Depends(get_db)):
 
 @router.get("/history")
 def marker_history(marker: str, db: Session = Depends(get_db)):
-    rows = db.execute(
-        select(models.BloodResult, models.BloodPanel.date)
-        .join(models.BloodPanel, models.BloodResult.panel_id == models.BloodPanel.id)
-        .where(models.BloodResult.marker == marker)
-        .order_by(models.BloodPanel.date)
-    ).all()
-    return [{"date": d, **_result_out(r)} for r, d in rows]
+    return bloodwork_service.marker_history(db, marker)
