@@ -29,6 +29,12 @@ ssh "$DELL_HOST" bash --login -s << REMOTE
 set -euo pipefail
 cd ~/$APP_DIR
 
+# .gitignore is branch-scoped, and the poller checks out review branches that
+# predate the rule - so logs/ became untracked again there and the stash below
+# swept it away, taking the file uvicorn was about to redirect into.
+# .git/info/exclude is per-clone and survives any checkout.
+grep -qxF 'logs/' .git/info/exclude 2>/dev/null || echo 'logs/' >> .git/info/exclude
+
 echo "==> Pulling latest code..."
 git stash --include-untracked 2>/dev/null || true
 git checkout main
@@ -83,6 +89,7 @@ uv sync
 echo "==> Restarting uvicorn..."
 pkill -f "uvicorn app[.]main" 2>/dev/null || true
 sleep 2
+mkdir -p ~/$APP_DIR/logs
 nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \
   >> ~/$APP_DIR/logs/uvicorn.log 2>&1 &
 disown
