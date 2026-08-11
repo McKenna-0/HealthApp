@@ -765,6 +765,11 @@ def main() -> None:
 
     recover_stuck_issues()
 
+    # deploy.sh waits for this line before it puts main back. Startup recovery
+    # redeploys every claude-review branch, so a deploy that lands while this
+    # is still running gets silently overwritten.
+    log.info("Startup recovery complete - entering poll loop")
+
     while True:
         try:
             issues = get_issues_with_label(LABEL_TRIGGER)
