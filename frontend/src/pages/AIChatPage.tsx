@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Check, PenLine, Send, Square, Wrench, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import Markdown from '../components/Markdown'
 import { apiGet, apiPost } from '../api/client'
 import { streamChatTurn } from '../api/aiStream'
 import type { ChatMessage, ChatSessionDetail, PendingAction } from '../api/types'
@@ -268,7 +268,7 @@ export default function AIChatPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px' }}>
+      <div className="chat-subheader">
         <button
           onClick={() => navigate('/ai')}
           style={{
@@ -315,7 +315,7 @@ export default function AIChatPage() {
               <div className={`chat-msg ${b.role}`}>
                 {b.role === 'assistant' ? (
                   <div className="report-md">
-                    <ReactMarkdown>{b.content}</ReactMarkdown>
+                    <Markdown>{b.content}</Markdown>
                   </div>
                 ) : (
                   b.content
@@ -332,7 +332,7 @@ export default function AIChatPage() {
             {live.answer && (
               <div className="chat-msg assistant">
                 <div className="report-md">
-                  <ReactMarkdown>{live.answer}</ReactMarkdown>
+                  <Markdown>{live.answer}</Markdown>
                 </div>
               </div>
             )}

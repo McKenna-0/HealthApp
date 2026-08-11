@@ -1154,6 +1154,50 @@ th {
   padding-bottom: calc(130px + env(safe-area-inset-bottom));
 }
 
+/* The chat title and its back arrow stay put while the conversation scrolls -
+   in standalone mode there is no browser back button, so scrolling to the top
+   of a long chat just to leave it is the only way out.
+   69px is .app-header's height: its 44px tap targets plus 12px padding either
+   side and the 1px border. Only the safe-area inset varies at runtime.
+   z-index sits below .app-header's 50 so this slides under it, not over. */
+.chat-subheader {
+  position: sticky;
+  top: calc(69px + env(safe-area-inset-top));
+  z-index: 40;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 4px 0;
+}
+
+/* Markdown tables (GFM). The model likes a daily breakdown, which is wider
+   than 390px - it scrolls in its own box so the page body never does. */
+.md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 0 10px;
+}
+
+.report-md table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.report-md th,
+.report-md td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.report-md th {
+  background: var(--card);
+  font-weight: 600;
+}
+
 /* Collapsible "what the agent actually looked at" trace */
 .tool-trace {
   margin: 0 0 8px;

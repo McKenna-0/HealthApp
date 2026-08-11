@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquarePlus, Trash2, Zap, CalendarDays } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import Markdown from '../components/Markdown'
 import { apiDelete, apiGet, apiPost } from '../api/client'
 import type { AIStatus, ChatSession } from '../api/types'
 import SwipeToDelete from '../components/SwipeToDelete'
@@ -128,7 +128,7 @@ function ReportsTab() {
             </button>
           </div>
           <div className="report-md">
-            <ReactMarkdown>{report.data.report_md}</ReactMarkdown>
+            <Markdown>{report.data.report_md}</Markdown>
           </div>
         </div>
       )}
