@@ -22,6 +22,7 @@ import type {
   WorkoutSummary,
 } from '../api/types'
 import BottomSheet from '../components/BottomSheet'
+import EditableWorkoutName from '../components/EditableWorkoutName'
 import ExercisePicker from '../components/ExercisePicker'
 import RestTimerBar, { clearRestTimer, startRestTimer } from '../components/RestTimerBar'
 import SwipeToDelete from '../components/SwipeToDelete'
@@ -137,9 +138,13 @@ export default function ActiveWorkoutPage() {
         >
           <ArrowLeft size={20} />
         </button>
-        <div style={{ flex: 1, textAlign: 'center' }}>
-          <div className="text-title" style={{ fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {session.activity.name}
+        <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+          <div className="text-title" style={{ fontWeight: 600, lineHeight: 1.2 }}>
+            <EditableWorkoutName
+              workoutId={session.activity.id}
+              name={session.activity.name}
+              align="center"
+            />
           </div>
           <div className="text-caption" style={{ color: 'var(--muted)' }}>
             {elapsed} · {totalWorking} sets · {Math.round(tonnage)} kg

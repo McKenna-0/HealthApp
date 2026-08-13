@@ -354,6 +354,7 @@ export interface WorkoutPR {
 export interface WorkoutSummary {
   workout_id: number
   name: string | null
+  source: string | null
   date: string
   start_ts: string | null
   ended_ts: string | null

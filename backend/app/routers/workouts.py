@@ -237,6 +237,18 @@ def workout_detail(workout_id: int, db: Session = Depends(get_db)):
     }
 
 
+@router.put("/{workout_id}/name", response_model=schemas.ActivityOut)
+def rename_workout(
+    workout_id: int, body: schemas.WorkoutRenameIn, db: Session = Depends(get_db)
+):
+    act = _get_activity(db, workout_id)
+    if act.source == "garmin":
+        raise HTTPException(409, "Garmin workout names are overwritten on the next sync")
+    act.name = body.name
+    db.commit()
+    return act
+
+
 @router.get("/{workout_id}/laps", response_model=list[schemas.LapOut])
 def workout_laps(workout_id: int, db: Session = Depends(get_db)):
     act = _get_activity(db, workout_id)

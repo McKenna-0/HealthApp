@@ -314,6 +314,7 @@ def session_summary(db: Session, act: models.Activity) -> dict:
     return {
         "workout_id": act.id,
         "name": act.name,
+        "source": act.source,
         "date": act.date,
         "start_ts": act.start_ts,
         "ended_ts": act.ended_ts,

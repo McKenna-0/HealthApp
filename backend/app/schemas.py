@@ -144,6 +144,18 @@ class SessionCreateIn(BaseModel):
     repeat_workout_id: int | None = None
 
 
+class WorkoutRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Name cannot be blank")
+        return v
+
+
 class PlannedExercise(BaseModel):
     exercise_id: int
     name: str
@@ -203,6 +215,7 @@ class WorkoutPR(BaseModel):
 class WorkoutSummaryOut(BaseModel):
     workout_id: int
     name: str | None
+    source: str | None = None
     date: str
     start_ts: str | None
     ended_ts: str | None

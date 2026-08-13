@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
 import type { Exercise, HrZone, Lap, SessionPayload, TimeSeriesPoint, WorkoutDetail } from '../api/types'
 import ChartCard from '../components/ChartCard'
+import EditableWorkoutName from '../components/EditableWorkoutName'
 import SwipeToDelete from '../components/SwipeToDelete'
 import { AreaChart, Area, BarChart, Bar, CartesianGrid, Cell, LineChart, Line, Tooltip, XAxis, YAxis } from 'recharts'
 
@@ -66,8 +67,12 @@ export default function WorkoutDetailPage() {
         >
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-display" style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {a.name ?? a.type}
+        <h1 className="text-display" style={{ margin: 0, flex: 1, minWidth: 0 }}>
+          <EditableWorkoutName
+            workoutId={a.id}
+            name={a.name ?? a.type}
+            editable={a.source !== 'garmin'}
+          />
         </h1>
       </div>
 
