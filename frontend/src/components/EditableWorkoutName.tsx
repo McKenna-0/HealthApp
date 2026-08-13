@@ -75,8 +75,9 @@ export default function EditableWorkoutName({
           style={{ width: '100%', minHeight: 44, padding: '4px 8px', textAlign: align }}
         />
         {rename.isError && (
-          // span, not p: this renders inside the page's <h1>
-          <span className="error-text" style={{ display: 'block' }}>
+          // span, not p: this renders inside the page's <h1>, whose weight it
+          // would otherwise inherit
+          <span className="error-text" style={{ display: 'block', fontWeight: 400 }}>
             {String(rename.error).replace(/^\d+: /, '').slice(0, 120)}
           </span>
         )}
