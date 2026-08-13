@@ -701,12 +701,12 @@ def check_review_issues() -> None:
             continue
 
         if detect_pr_merged(number, branch=issue_state.get("branch")):
-            log.info("Issue #%d: PR merged, deploying main", number)
-            deploy_main()
+            log.info("Issue #%d: PR merged", number)
+            # Relabel before handing over: hand_over_slot asks GitHub what is
+            # still in review, and this issue must already be out of that list
+            # or it would win the slot straight back.
             set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
-            comment(number, "PR merged. Main branch deployed.\n\n"
-                    "To request follow-up changes, re-add the `claude` label "
-                    "and comment your feedback.")
+            comment(number, _merged_message(hand_over_slot(number)))
             archive_issue_state(issue_key)
             continue
 
@@ -731,11 +731,8 @@ def check_review_issues() -> None:
             else:
                 branch = issue_state.get("branch", f"claude/issue-{number}")
                 merge_result = gh("pr", "merge", branch, "--repo", REPO, "--merge")
-            deploy_main()
             set_labels(number, add=[LABEL_DONE], remove=[LABEL_REVIEW])
-            comment(number, "PR merged and main branch deployed.\n\n"
-                    "To request follow-up changes, re-add the `claude` label "
-                    "and comment your feedback.")
+            comment(number, _merged_message(hand_over_slot(number)))
             archive_issue_state(issue_key)
             continue
 
@@ -790,9 +787,18 @@ def recover_stuck_issues() -> None:
     for issue in waiting:
         log.info("Issue #%d is waiting for user reply", issue["number"])
 
+    deploy_review_slot()
+
+
+def deploy_review_slot() -> int | None:
+    """Give the phone to the newest issue still awaiting review.
+
+    Returns the issue number now deployed, or None if nothing is waiting (in
+    which case the caller decides what to put there instead).
+    """
     reviewing = get_issues_with_label(LABEL_REVIEW)
     if not reviewing:
-        return
+        return None
 
     # gh returns issues newest first. This used to deploy every one of them in
     # turn, so with two in review it built the frontend twice and left the
@@ -826,11 +832,43 @@ def recover_stuck_issues() -> None:
 
     if live_number is None:
         log.warning("No review branch could be deployed; leaving whatever is checked out")
-        return
+        return None
 
     log.info("Live on the phone: issue #%d%s", live_number,
              f" (superseded {', '.join('#%d' % n for n in superseded)})" if superseded else "")
     notify_superseded(live_number)
+    return live_number
+
+
+def _merged_message(now_live: int | None) -> str:
+    """Say what is actually on the phone now, rather than assuming it is main."""
+    where = (f"Issue #{now_live} was still waiting for review, so **that** is now deployed "
+             f"to your phone - not main."
+             if now_live else "Main branch deployed.")
+    return (f"PR merged. {where}\n\n"
+            "To request follow-up changes, re-add the `claude` label "
+            "and comment your feedback.")
+
+
+def hand_over_slot(just_finished: int) -> int | None:
+    """Decide what goes on the phone after an issue leaves review.
+
+    Approving one issue used to always deploy main, which quietly left anything
+    else still in review off the phone until the next poller restart - so the
+    queue looked stalled when it was only invisible. The next issue in line
+    gets the slot now; main goes back on only once the queue is empty.
+
+    Main is not pulled here when a review branch wins. Nothing needs the local
+    main to be current until the next issue starts, and `reset_to_main` pulls
+    at that point anyway - so this avoids a second frontend build.
+    """
+    live = deploy_review_slot()
+    if live is None:
+        deploy_main()
+        log.info("Issue #%d done, nothing else in review - main is live", just_finished)
+    else:
+        log.info("Issue #%d done - handed the phone to issue #%d", just_finished, live)
+    return live
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────
