@@ -94,9 +94,18 @@ nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \
   >> ~/$APP_DIR/logs/uvicorn.log 2>&1 &
 disown
 
+# Polled rather than slept: 6s happened to be enough, but it is a guess, and
+# review.sh hit a 502 doing exactly this.
 echo "==> Verifying backend..."
-sleep 6
-curl -fsS --max-time 10 http://127.0.0.1:8000/api/health > /dev/null
+HEALTHY=no
+for _ in \$(seq 1 20); do
+  if curl -fsS --max-time 10 http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+    HEALTHY=yes
+    break
+  fi
+  sleep 2
+done
+[ "\$HEALTHY" = yes ] || { echo "    backend did not come back within 40s" >&2; exit 1; }
 echo "    health OK, serving \$(git rev-parse --short HEAD)"
 REMOTE
 

@@ -41,8 +41,21 @@ else:
 PY
 REMOTE
 
+# uvicorn is still binding when the deploy call returns, so this polls rather
+# than assuming. A fixed sleep is a guess that gets it wrong on a slow start.
 echo "==> Verifying..."
-curl -fsS --max-time 15 "$APP_URL/api/health" > /dev/null
+HEALTHY=no
+for _ in $(seq 1 20); do
+  if curl -fsS --max-time 10 "$APP_URL/api/health" > /dev/null 2>&1; then
+    HEALTHY=yes
+    break
+  fi
+  sleep 2
+done
+if [ "$HEALTHY" != yes ]; then
+  echo "    app did not come back within 40s - check logs/uvicorn.log on the Dell" >&2
+  exit 1
+fi
 BRANCH=$(ssh "$DELL_HOST" "cd ~/$APP_DIR && git branch --show-current")
 echo "    health OK, serving branch: $BRANCH"
 
