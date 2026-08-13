@@ -42,6 +42,11 @@ MAX_CONVERSATION_TURNS = 10
 RETRY_COOLDOWN_HOURS = 2
 ARCHIVE_RETENTION_DAYS = 30
 
+# Appended to every comment the poller posts. It cannot identify its own
+# comments by author: `gh` authenticates as the repo owner, who is also the
+# person replying. An HTML comment renders as nothing on GitHub.
+BOT_MARKER = "<!-- claude-poller -->"
+
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "opus")
 
@@ -185,16 +190,10 @@ def set_labels(issue: int, *, add: list[str] | None = None,
 
 def comment(issue: int, body: str) -> None:
     """Post a comment on an issue."""
-    result = gh("issue", "comment", str(issue), "--repo", REPO, "--body", body)
+    result = gh("issue", "comment", str(issue), "--repo", REPO,
+                "--body", f"{body}\n\n{BOT_MARKER}")
     if result.returncode != 0:
         log.warning("Comment failed on #%d: %s", issue, result.stderr.strip())
-
-
-def _get_bot_login() -> str:
-    if not hasattr(_get_bot_login, "_cached"):
-        result = gh("api", "/user", "--jq", ".login")
-        _get_bot_login._cached = result.stdout.strip() if result.returncode == 0 else ""
-    return _get_bot_login._cached
 
 
 def get_user_replies(issue_number: int, after_timestamp: str) -> list[str]:
@@ -211,13 +210,18 @@ def get_user_replies(issue_number: int, after_timestamp: str) -> list[str]:
     except (json.JSONDecodeError, KeyError):
         return []
 
-    bot_login = _get_bot_login()
+    # Authorship cannot tell the two apart: the poller comments through `gh`
+    # authenticated as the repo owner, who is also the human replying. Filtering
+    # on `author != bot_login` therefore discarded every reply the user ever
+    # wrote - lgtm included - so approvals and feedback silently did nothing.
+    # Every poller comment carries an invisible marker instead.
     replies = []
     for c in comments:
-        author = c.get("author", {}).get("login", "")
-        created = c.get("createdAt", "")
-        if author != bot_login and created > after_timestamp:
-            replies.append(c.get("body", ""))
+        body = c.get("body", "")
+        if BOT_MARKER in body:
+            continue
+        if c.get("createdAt", "") > after_timestamp:
+            replies.append(body)
     return replies
 
 
