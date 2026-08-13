@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..services import analytics, correlations
+from ..services import weight_progress as weight_progress_service
 from ..timeutil import today_local
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -37,6 +38,19 @@ def weight_trend(
         for d in days
         if d in trend or d in weights
     ]
+
+
+@router.get("/weight-progress")
+def weight_progress(
+    days: int = Query(default=90, ge=14, le=730),
+    horizon: int = Query(default=21, ge=0, le=180),
+    end: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Smoothed weight trend, rate of change, and progress against the goal."""
+    return weight_progress_service.weight_progress(
+        db, end or today_local().isoformat(), days, horizon
+    )
 
 
 @router.get("/tdee")
