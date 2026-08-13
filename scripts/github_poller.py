@@ -636,6 +636,9 @@ Python managed with uv. Frontend uses React Query, Recharts, date-fns.
             state[issue_key]["pr_url"] = pr_url
             state[issue_key]["branch"] = branch
             save_state(state)
+            # This branch just took the phone off anything else in review.
+            if deployed:
+                notify_superseded(number)
             stay_on_branch = True
             return True
         else:
@@ -741,6 +744,41 @@ def check_review_issues() -> None:
         process_issue(issue, resume_text=reply_body, resume_context="review")
 
 
+def notify_superseded(live_number: int) -> None:
+    """Tell the other issues in review that they no longer hold the deploy slot.
+
+    There is one checkout and one app, so a newly deployed branch silently
+    takes the phone away from whatever was there - and the "Changes are live on
+    your phone" comment left on the other issue quietly becomes false. Said
+    once per issue: deploy.sh restarts the poller, so commenting on every pass
+    would bury the issue in noise.
+    """
+    state = load_state()
+    changed = False
+    for issue in get_issues_with_label(LABEL_REVIEW):
+        number = issue["number"]
+        issue_state = state.get(str(number), {})
+        if number == live_number:
+            # It holds the slot, so it must be told again if it later loses it.
+            if issue_state.pop("superseded_notified", None) is not None:
+                state[str(number)] = issue_state
+                changed = True
+            continue
+        if issue_state.get("superseded_notified"):
+            continue
+        # Deliberately does not promise this branch deploys next: it only gets
+        # the slot if it still exists locally, which is not guaranteed.
+        comment(number, f"Issue #{live_number} is currently deployed to your phone, so "
+                        f"**this branch is not what you are looking at.** Only one branch "
+                        f"can be live at a time.\n\nApproving or closing #{live_number} "
+                        f"frees the slot.")
+        issue_state["superseded_notified"] = True
+        state[str(number)] = issue_state
+        changed = True
+    if changed:
+        save_state(state)
+
+
 def recover_stuck_issues() -> None:
     """On startup, recover issues stuck in transient states."""
     stuck = get_issues_with_label(LABEL_WIP)
@@ -753,15 +791,46 @@ def recover_stuck_issues() -> None:
         log.info("Issue #%d is waiting for user reply", issue["number"])
 
     reviewing = get_issues_with_label(LABEL_REVIEW)
+    if not reviewing:
+        return
+
+    # gh returns issues newest first. This used to deploy every one of them in
+    # turn, so with two in review it built the frontend twice and left the
+    # *oldest* branch live - the opposite of what you expect after asking for
+    # the newest thing, and a slot that silently changed hands on every
+    # restart. There is only one checkout and one app, so only one branch can
+    # win: give it to the newest and tell the others they lost.
     state = load_state()
+    live_number: int | None = None
+    superseded: list[int] = []
+
     for issue in reviewing:
         number = issue["number"]
-        log.info("Issue #%d is awaiting user review — ensuring branch is deployed", number)
         issue_state = state.get(str(number), {})
         branch = issue_state.get("branch", f"claude/issue-{number}")
-        result = git("branch", "--list", branch)
-        if result.stdout.strip():
-            deploy_branch(branch)
+
+        if not git("branch", "--list", branch).stdout.strip():
+            log.warning("Issue #%d is in review but branch %s is not present locally",
+                        number, branch)
+            continue
+
+        if live_number is None:
+            log.info("Issue #%d is the newest in review - deploying %s", number, branch)
+            if deploy_branch(branch):
+                live_number = number
+                continue
+            log.error("Deploy of %s failed - falling through to the next issue", branch)
+            continue
+
+        superseded.append(number)
+
+    if live_number is None:
+        log.warning("No review branch could be deployed; leaving whatever is checked out")
+        return
+
+    log.info("Live on the phone: issue #%d%s", live_number,
+             f" (superseded {', '.join('#%d' % n for n in superseded)})" if superseded else "")
+    notify_superseded(live_number)
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────
