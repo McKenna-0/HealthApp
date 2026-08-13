@@ -383,8 +383,13 @@ Implement this issue:
 3. Implement the feature or fix described in the issue
 4. Run backend tests with `cd backend && uv run pytest` to verify nothing is broken
 5. Run frontend lint with `cd frontend && npm run lint`
-6. Commit your changes with a descriptive message referencing issue #{number}
-7. Push the branch and create a pull request linking to issue #{number}
+6. Typecheck the frontend with `cd frontend && npx tsc --noEmit` - oxlint does not
+   do this, and a type error otherwise surfaces later as a failed auto-deploy,
+   which reads like an infrastructure problem rather than a code problem
+7. If you changed anything the phone renders, follow the iphone-pwa skill and
+   verify with Playwright at the iPhone 14 viewport before you call it done
+8. Commit your changes with a descriptive message referencing issue #{number}
+9. Push the branch and create a pull request linking to issue #{number}
 
 Do not ask clarifying questions. Make your best judgment and proceed.
 If you need to document an assumption, do so in the PR description.
@@ -493,7 +498,10 @@ This issue was previously implemented and merged. The user has feedback:
 
 Fix this on a new branch 'claude/issue-{number}-fix' from main.
 The previous implementation is already in main — make targeted changes only.
-Run backend tests with `cd backend && uv run pytest` and frontend lint with `cd frontend && npm run lint`.
+Run backend tests with `cd backend && uv run pytest`, frontend lint with
+`cd frontend && npm run lint`, and typecheck with `cd frontend && npx tsc --noEmit`.
+If you changed anything the phone renders, follow the iphone-pwa skill and verify
+with Playwright at the iPhone 14 viewport before you call it done.
 Commit, push, and create a pull request referencing issue #{number}.
 
 Tech stack: FastAPI + SQLAlchemy/SQLite backend, React 19 + TypeScript + Vite frontend.

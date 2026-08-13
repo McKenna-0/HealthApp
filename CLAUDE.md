@@ -58,3 +58,61 @@ All endpoints under `/api/*`. In dev, Vite proxies to `http://127.0.0.1:8000`. K
 - **Date storage**: TEXT columns in YYYY-MM-DD format; timestamps as ISO 8601
 - **Source tracking**: most tables have a `source` field (manual | garmin | mock)
 - **Python 3.13+** managed via uv; TypeScript strict mode with noUnusedLocals/Parameters
+
+## Constraints
+
+These hold regardless of the task. They are recorded here rather than in any
+one machine's memory because work happens both on the laptop and, via the
+GitHub issue poller, on the Dell.
+
+### Privacy — the user's health data must not be harvested
+
+- This is real medical and body data about one identifiable person. It is never
+  training material for anyone.
+- **Open weights do not mean private.** Whoever hosts the model still sees every
+  prompt. Choosing an open-weight model satisfies nothing on its own.
+- What actually prevents harvesting: OpenRouter's ZDR enforcement plus
+  `provider: {data_collection: "deny", require_parameters: true}` in the request
+  body, or self-hosting. `AI_REQUIRE_ZDR` controls this; leave it on. The
+  provider block is OpenRouter-specific — gate it on the resolved host, since
+  other OpenAI-compatible servers reject unknown top-level fields.
+- Do not send real health data to a provider the user has not chosen. That
+  includes exploratory scripts and evals: `scripts/eval_agent.py` costs money
+  and ships live data to whichever endpoint is configured, which is why it is
+  not a pytest file and is never run unattended.
+- Never hardcode a PrivateMind model id — its catalogue is dynamic. Resolve
+  through `GET /v1/models`.
+
+### The only client is an iPhone 14 PWA
+
+Installed to the Home Screen, iOS Safari, 390x844. Desktop rendering is a
+development convenience, not a target. **Invoke the `iphone-pwa` skill for any
+frontend change**, including ones that look purely cosmetic — the rules there
+are correctness constraints, and the failures they prevent are invisible on a
+desktop browser. Verify with Playwright at the iPhone 14 viewport; the phone is
+the acceptance test.
+
+### The AI agent never writes to health tables
+
+`propose_log_weight` / `_food` / `_context` stage a row in `ai_pending_action`
+for the user to confirm. The agent must say a value is *drafted*, never that it
+has been logged. Confirmation claims the row with a conditional UPDATE so a
+double tap cannot write twice.
+
+### Never invent a number, a date, or a citation
+
+Quote what the tools returned. Literature is cited only from what
+`search_literature` actually came back with, always with a PMID — the pre-agent
+prompt banned citing studies at all precisely because the model fabricated them.
+Correlations over weeks of n=1 data are weak evidence and must be hedged;
+wearable calorie, HRV and sleep-stage figures are estimates, so describe them as
+directional.
+
+### Deployment
+
+`bash scripts/deploy.sh` is the only supported path, and it must stay
+self-verifying — a failed push aborts, and the bundle the server returns is
+checked against the one just built. Never edit files directly on the Dell: it is
+a git checkout that the poller resets to main, so local changes get stashed or
+cleaned away. The poller also deploys, and its startup redeploys every branch
+labelled `claude-review`; deploy.sh sequences around that deliberately.
