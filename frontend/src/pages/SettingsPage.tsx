@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
 import type { AIModelOption, AIProvider, HealthStatus, MfpStatus, SyncLogRow } from '../api/types'
+import { ALL_METRICS, loadMetricsConfig, saveMetricsConfig } from '../utils/dashboardMetrics'
 import {
   getNotificationConfig,
   saveNotificationConfig,
@@ -113,7 +114,8 @@ function TargetsCard() {
         {field('weight_goal_kg', 'Weight goal (kg)')}
       </div>
       <div className="text-caption" style={{ marginBottom: 12, color: 'var(--muted)' }}>
-        Active calories burned each day are added on top of this allowance
+        Active calories burned each day are added on top of this allowance. Set the rate you
+        want to get to that weight in the Weight tile on the home page.
       </div>
 
       <div className="row" style={{ marginBottom: 4 }}>
@@ -537,25 +539,18 @@ const METRIC_DEFS: Record<string, { label: string }> = {
   steps: { label: 'Steps' },
   resting_hr: { label: 'Resting HR' },
   body_battery: { label: 'Body Battery' },
+  weight: { label: 'Weight & Goal' },
 }
 
-const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
-
 function DashboardCard() {
-  const [allMetrics, setAllMetrics] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('dashboard-metrics-config')
-      if (saved) return JSON.parse(saved)
-    } catch {}
-    return DEFAULT_METRICS
-  })
+  const [allMetrics, setAllMetrics] = useState<string[]>(loadMetricsConfig)
 
   function toggleMetric(key: string) {
     setAllMetrics(prev => {
       const next = prev.includes(key)
         ? prev.filter(k => k !== key)
         : [...prev, key]
-      localStorage.setItem('dashboard-metrics-config', JSON.stringify(next))
+      saveMetricsConfig(next)
       return next
     })
   }
@@ -568,13 +563,13 @@ function DashboardCard() {
       const target = idx + direction
       if (target < 0 || target >= next.length) return prev
       ;[next[idx], next[target]] = [next[target], next[idx]]
-      localStorage.setItem('dashboard-metrics-config', JSON.stringify(next))
+      saveMetricsConfig(next)
       return next
     })
   }
 
   // Show all known metrics; enabled ones are those in allMetrics
-  const allKeys = DEFAULT_METRICS
+  const allKeys: string[] = [...ALL_METRICS]
   // Order: enabled first (in their saved order), then disabled ones appended
   const orderedKeys = [
     ...allMetrics.filter(k => allKeys.includes(k)),

@@ -14,6 +14,7 @@ export default function RangePicker({
           key={d}
           className={`chip ${value === d ? 'active' : ''}`}
           onClick={() => onChange(d)}
+          style={{ minHeight: 44 }}  // HIG tap target; the chip's padding alone is 33px
         >
           {d}d
         </button>

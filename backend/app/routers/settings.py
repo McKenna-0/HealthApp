@@ -16,6 +16,9 @@ DEFAULTS = {
     "carbs_target_g": None,
     "fat_target_g": None,
     "weight_goal_kg": None,
+    "weight_goal_rate_kg_per_week": None,
+    "weight_goal_start_date": None,
+    "weight_goal_start_kg": None,
     "macro_mode": "grams",
     "protein_target_pct": None,
     "carbs_target_pct": None,
@@ -30,6 +33,13 @@ class SettingsIn(BaseModel):
     carbs_target_g: float | None = Field(default=None, ge=0)
     fat_target_g: float | None = Field(default=None, ge=0)
     weight_goal_kg: float | None = Field(default=None, gt=20, lt=400)
+    # Signed: positive to gain, negative to lose, 0 to hold. Bounded well past
+    # any sane rate so the UI, not the API, is where guidance happens.
+    weight_goal_rate_kg_per_week: float | None = Field(default=None, ge=-3, le=3)
+    weight_goal_start_date: str | None = Field(
+        default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    weight_goal_start_kg: float | None = Field(default=None, gt=20, lt=400)
     macro_mode: str | None = Field(default=None, pattern="^(grams|percent)$")
     protein_target_pct: float | None = Field(default=None, ge=0, le=100)
     carbs_target_pct: float | None = Field(default=None, ge=0, le=100)
@@ -37,7 +47,7 @@ class SettingsIn(BaseModel):
     daily_balance_target: float | None = Field(default=None)
 
 
-_STRING_KEYS = {"macro_mode"}
+_STRING_KEYS = {"macro_mode", "weight_goal_start_date"}
 
 
 @router.get("")
@@ -64,7 +74,11 @@ def daily_targets(
 
 @router.put("")
 def put_settings(body: SettingsIn, db: Session = Depends(get_db)):
-    for key, value in body.model_dump().items():
+    # Partial update: only keys the caller actually sent are written. The
+    # weight-goal editor and the macro-targets form are separate screens
+    # writing the same document, and a full-object PUT from either would blank
+    # whatever the other one owns.
+    for key, value in body.model_dump(exclude_unset=True).items():
         row = db.get(models.UserSetting, key)
         if row is None:
             db.add(models.UserSetting(key=key, value="" if value is None else str(value)))

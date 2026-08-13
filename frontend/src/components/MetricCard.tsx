@@ -6,6 +6,8 @@ export default function MetricCard({
   value,
   sub,
   delta,
+  deltaColor,
+  deltaText,
   onClick,
 }: {
   icon?: ReactNode
@@ -13,12 +15,18 @@ export default function MetricCard({
   value: string | number | null
   sub?: string
   delta?: { value: number; suffix?: string }
+  /** Overrides "up is good": for weight, whether a rise is good depends on the goal. */
+  deltaColor?: string
+  /** Overrides the rendered delta text, e.g. to control decimal places. */
+  deltaText?: string
   onClick?: () => void
 }) {
-  const deltaColor = delta
-    ? delta.value > 0 ? 'var(--green)'
-    : delta.value < 0 ? 'var(--red)'
-    : 'var(--muted)'
+  const resolvedDeltaColor = delta
+    ? deltaColor ?? (
+      delta.value > 0 ? 'var(--green)'
+      : delta.value < 0 ? 'var(--red)'
+      : 'var(--muted)'
+    )
     : undefined
 
   return (
@@ -35,8 +43,8 @@ export default function MetricCard({
         {value ?? '–'}
       </div>
       {delta && (
-        <div style={{ fontSize: '0.72rem', color: deltaColor }}>
-          {delta.value > 0 ? '+' : ''}{delta.value}{delta.suffix || ''}
+        <div style={{ fontSize: '0.72rem', color: resolvedDeltaColor }}>
+          {deltaText ?? `${delta.value > 0 ? '+' : ''}${delta.value}${delta.suffix || ''}`}
         </div>
       )}
       {sub && <div className="text-caption">{sub}</div>}

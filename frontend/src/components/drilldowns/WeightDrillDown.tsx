@@ -14,9 +14,9 @@ import {
   Legend,
 } from 'recharts'
 import { apiGet } from '../../api/client'
-import type { WeightTrendPoint, EnergyBalanceDay, TdeeResult } from '../../api/types'
+import type { EnergyBalanceDay, TdeeResult } from '../../api/types'
 import RangePicker from '../RangePicker'
-import SkeletonLoader from '../SkeletonLoader'
+import WeightProgressPanel from './WeightProgressPanel'
 import { getBalanceColor } from '../../utils/balanceColor'
 
 interface Settings {
@@ -42,11 +42,6 @@ export default function WeightDrillDown() {
   const [days, setDays] = useState(90)
   const start = isoDaysAgo(days - 1)
 
-  const { data: trend, isLoading: trendLoading } = useQuery<WeightTrendPoint[]>({
-    queryKey: ['weight-trend', days],
-    queryFn: () => apiGet(`/api/analytics/weight-trend?start=${start}`),
-  })
-
   const { data: energy } = useQuery<EnergyBalanceDay[]>({
     queryKey: ['energy-balance', days],
     queryFn: () => apiGet(`/api/analytics/energy-balance?start=${start}`),
@@ -62,119 +57,33 @@ export default function WeightDrillDown() {
     queryFn: () => apiGet('/api/settings'),
   })
 
-  const trendData = (trend ?? []).map(p => ({
-    date: p.date.slice(5),
-    weight: p.weight,
-    trend: p.trend != null ? +p.trend.toFixed(1) : null,
-  }))
-
-  const latest = [...trendData].reverse().find(p => p.trend != null)
-  const latestWeight = [...trendData].reverse().find(p => p.weight != null)
-
-  // Compute weekly slope from first and last valid trend points
-  const trendPoints = (trend ?? []).filter(p => p.trend != null)
-  let slopePerWeek: number | null = null
-  if (trendPoints.length >= 8) {
-    const first = trendPoints[trendPoints.length - 8]
-    const last = trendPoints[trendPoints.length - 1]
-    const daysDiff =
-      (new Date(last.date).getTime() - new Date(first.date).getTime()) / (1000 * 60 * 60 * 24)
-    if (daysDiff > 0) {
-      slopePerWeek = +((((last.trend ?? 0) - (first.trend ?? 0)) / daysDiff) * 7).toFixed(2)
-    }
-  }
-
   return (
     <div>
-      {/* Summary */}
-      <div style={{ display: 'flex', gap: 20, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div className="text-caption">Weight</div>
-          <div className="text-body" style={{ fontWeight: 600 }}>
-            {latestWeight?.weight != null ? `${latestWeight.weight} kg` : '–'}
-          </div>
+      {/* Trend, goal and rate of change */}
+      <WeightProgressPanel />
+
+      {/* What is driving it */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span className="text-title">Energy</span>
+          <RangePicker value={days} onChange={setDays} />
         </div>
-        <div>
-          <div className="text-caption">Trend</div>
-          <div className="text-body" style={{ fontWeight: 600 }}>
-            {latest?.trend != null ? `${latest.trend} kg` : '–'}
-          </div>
-        </div>
+
         {tdee?.tdee != null && (
-          <div>
-            <div className="text-caption">TDEE</div>
-            <div className="text-body" style={{ fontWeight: 600 }}>{Math.round(tdee.tdee)} kcal</div>
-          </div>
-        )}
-        {slopePerWeek != null && (
-          <div>
-            <div className="text-caption">Trend/wk</div>
-            <div
-              className="text-body"
-              style={{
-                fontWeight: 600,
-                color:
-                  slopePerWeek < 0
-                    ? 'var(--green)'
-                    : slopePerWeek > 0
-                      ? 'var(--red)'
-                      : 'var(--muted)',
-              }}
-            >
-              {slopePerWeek > 0 ? '+' : ''}{slopePerWeek} kg
+          <div style={{ marginBottom: 12 }}>
+            <div className="text-caption">
+              Back-estimated TDEE over {tdee.window_days} days
+            </div>
+            <div className="text-body" style={{ fontWeight: 600 }}>
+              {Math.round(tdee.tdee)} kcal/day
             </div>
           </div>
         )}
-      </div>
 
-      <RangePicker value={days} onChange={setDays} />
-
-      {trendLoading ? (
-        <SkeletonLoader height="400px" borderRadius="14px" />
-      ) : (
-        <>
-          {/* Weight trend chart */}
-          <div className="text-title" style={{ margin: '16px 0 8px' }}>Weight Trend</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={trendData}>
-              <XAxis
-                dataKey="date"
-                tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                minTickGap={30}
-              />
-              <YAxis
-                domain={['dataMin - 1', 'dataMax + 1']}
-                tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                width={40}
-              />
-              <Tooltip {...tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />
-              <Line
-                dataKey="weight"
-                stroke="var(--muted)"
-                strokeWidth={1}
-                dot={{ r: 2, fill: 'var(--muted)' }}
-                name="Daily"
-                connectNulls={false}
-              />
-              <Line
-                dataKey="trend"
-                stroke="var(--accent)"
-                strokeWidth={2}
-                dot={{ r: 2.5, fill: 'var(--accent)' }}
-                name="Trend (EWMA)"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-
-          {/* Energy balance */}
-          {(energy ?? []).length > 0 && (
-            <>
-              <div className="text-title" style={{ margin: '16px 0 8px' }}>Energy Balance</div>
+        {(energy ?? []).length > 0 && (
+          <>
+            <div className="text-caption" style={{ margin: '4px 0 8px' }}>Daily balance</div>
+            <div style={{ touchAction: 'pan-y' }}>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={energy}>
                   <XAxis
@@ -203,9 +112,10 @@ export default function WeightDrillDown() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            </div>
 
-              {/* Calories in vs out */}
-              <div className="text-title" style={{ margin: '16px 0 8px' }}>Calories In vs Out</div>
+            <div className="text-caption" style={{ margin: '12px 0 8px' }}>Calories in vs out</div>
+            <div style={{ touchAction: 'pan-y' }}>
               <ResponsiveContainer width="100%" height={160}>
                 <LineChart data={energy}>
                   <XAxis
@@ -242,10 +152,10 @@ export default function WeightDrillDown() {
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </>
-          )}
-        </>
-      )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
