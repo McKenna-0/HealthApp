@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiGet, apiPost, apiPut } from '../api/client'
+import { useDailyTargets } from '../api/targets'
 import type { FoodItem, FoodLogRow, Meal, ServingOption } from '../api/types'
 import CalorieDonut from '../components/CalorieDonut'
 import ProgressBar from '../components/ProgressBar'
@@ -97,17 +98,6 @@ const MICRO_LABELS: [string, string, string][] = [
   ['folate_mcg', 'Folate', 'mcg'],
 ]
 
-interface Targets {
-  calorie_target: number | null
-  protein_target_g: number | null
-  carbs_target_g: number | null
-  fat_target_g: number | null
-  macro_mode: string | null
-  protein_target_pct: number | null
-  carbs_target_pct: number | null
-  fat_target_pct: number | null
-}
-
 export default function FoodDetailPage() {
   const { meal: mealParam } = useParams()
   const [params] = useSearchParams()
@@ -153,10 +143,7 @@ export default function FoodDetailPage() {
     queryFn: () => apiGet<FoodItem[]>('/api/food/custom'),
   })
 
-  const targets = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => apiGet<Targets>('/api/settings'),
-  })
+  const targets = useDailyTargets(date)
 
   const nutrients = useQuery({
     queryKey: ['food-nutrients', cacheId],
@@ -279,15 +266,6 @@ export default function FoodDetailPage() {
   }
 
   const t = targets.data
-  const proteinTarget = t?.macro_mode === 'percent' && t.calorie_target && t.protein_target_pct
-    ? Math.round(t.calorie_target * t.protein_target_pct / 100 / 4)
-    : t?.protein_target_g ?? null
-  const carbsTarget = t?.macro_mode === 'percent' && t.calorie_target && t.carbs_target_pct
-    ? Math.round(t.calorie_target * t.carbs_target_pct / 100 / 4)
-    : t?.carbs_target_g ?? null
-  const fatTarget = t?.macro_mode === 'percent' && t.calorie_target && t.fat_target_pct
-    ? Math.round(t.calorie_target * t.fat_target_pct / 100 / 9)
-    : t?.fat_target_g ?? null
 
   return (
     <>
@@ -376,35 +354,46 @@ export default function FoodDetailPage() {
       )}
 
       {/* Daily goals */}
-      {t && (t.calorie_target || proteinTarget || carbsTarget || fatTarget) && (
+      {t && (t.calories.target || t.protein.target || t.carbs.target || t.fat.target) && (
         <div className="card">
           <p className="text-body" style={{ fontWeight: 600, marginBottom: 10 }}>% of Daily Goals</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {t.calorie_target != null && (
+            {t.calories.target != null && (
               <div>
                 <div className="row" style={{ justifyContent: 'space-between', fontSize: '0.78rem' }}>
                   <span>Calories</span>
-                  <span className="text-caption">{Math.round((cal / t.calorie_target) * 100)}%</span>
+                  <span className="text-caption">{Math.round((cal / t.calories.target) * 100)}%</span>
                 </div>
-                <ProgressBar value={cal} target={t.calorie_target} />
+                <ProgressBar
+                  value={cal}
+                  target={t.calories.base}
+                  bonus={t.calories.bonus}
+                  bonusColor="var(--amber)"
+                />
+                {t.calories.base != null && t.calories.bonus > 0 && (
+                  <div className="text-caption" style={{ marginTop: 3 }}>
+                    of {Math.round(t.calories.base)}{' '}
+                    <span style={{ color: 'var(--amber)' }}>+{Math.round(t.calories.bonus)} active</span>
+                  </div>
+                )}
               </div>
             )}
             {(
               [
-                ['Carbs', carbs, carbsTarget, '#fbbf24'],
-                ['Fat', fat, fatTarget, '#a78bfa'],
-                ['Protein', prot, proteinTarget, '#4ade80'],
+                ['Carbs', carbs, t.carbs, '#fbbf24'],
+                ['Fat', fat, t.fat, '#a78bfa'],
+                ['Protein', prot, t.protein, '#4ade80'],
               ] as const
-            ).map(([label, val, target, color]) =>
-              target != null && val != null ? (
+            ).map(([label, val, part, color]) =>
+              part.target != null && val != null ? (
                 <div key={label}>
                   <div className="row" style={{ justifyContent: 'space-between', fontSize: '0.78rem' }}>
                     <span>{label}</span>
                     <span className="text-caption">
-                      {Math.round(val)}g / {Math.round(target)}g · {Math.round((val / target) * 100)}%
+                      {Math.round(val)}g / {Math.round(part.target)}g · {Math.round((val / part.target) * 100)}%
                     </span>
                   </div>
-                  <ProgressBar value={val} target={target} color={color} />
+                  <ProgressBar value={val} target={part.base} bonus={part.bonus} color={color} />
                 </div>
               ) : null,
             )}
