@@ -798,7 +798,17 @@ def recover_stuck_issues() -> None:
     for issue in waiting:
         log.info("Issue #%d is waiting for user reply", issue["number"])
 
-    deploy_review_slot()
+    if deploy_review_slot() is not None:
+        return
+
+    # Nothing is waiting, so main should be what runs. Closing an issue without
+    # merging it strands the host otherwise: the issue drops out of the review
+    # list, but no merge happened, so nothing ever calls deploy_main and the
+    # Dell sits on a dead branch until someone deploys by hand.
+    current = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if current and current != "main":
+        log.info("Nothing in review and sitting on %s - restoring main", current)
+        deploy_main()
 
 
 def deploy_review_slot(exclude: set[int] | None = None) -> int | None:

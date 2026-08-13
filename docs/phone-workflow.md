@@ -92,9 +92,29 @@ Dell. You'll see:
 **Kill and reopen the PWA** on your phone (swipe it away, then tap the icon
 again) to pick up the new service worker. Then test the feature.
 
+**Only one branch can be live at a time.** The Dell is a single checkout
+serving a single app, so there is one slot and everything competes for it:
+
+- With two issues in review, the **newest** gets the phone. The other is told
+  so in a comment — it has not been lost, its branch and PR still exist.
+- Running `bash scripts/deploy.sh` from the laptop always ends on **main**,
+  because after deploying you should be looking at what you deployed. That
+  takes the branch under review off the phone.
+- `bash scripts/review.sh` puts the newest branch awaiting review back on.
+  It is purely a deploy action and never re-runs Claude.
+
+Approving with `lgtm` hands the slot to the next issue in the queue
+automatically, so in the normal one-at-a-time loop you rarely need
+`review.sh` at all.
+
 ### 5. Give Feedback or Approve
 
 **If it needs changes:** Comment on the issue with specific feedback.
+
+> Any comment that is not exactly `lgtm` is treated as feedback and resumes
+> Claude. Don't think out loud in the thread unless you want changes. Resuming
+> is not starting over — it reopens the same session on the same branch and
+> makes targeted changes.
 
 Good feedback examples:
 - "The chart line should be curved, not straight"
