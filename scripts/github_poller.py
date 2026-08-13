@@ -745,8 +745,12 @@ def check_review_issues() -> None:
         process_issue(issue, resume_text=reply_body, resume_context="review")
 
 
-def notify_superseded(live_number: int) -> None:
+def notify_superseded(live_number: int, exclude: set[int] | None = None) -> None:
     """Tell the other issues in review that they no longer hold the deploy slot.
+
+    `exclude` carries the same caveat as in `deploy_review_slot`: an issue just
+    relabelled out of review still comes back from GitHub for a moment, and
+    telling a finished issue it lost a slot it no longer wants is pure noise.
 
     There is one checkout and one app, so a newly deployed branch silently
     takes the phone away from whatever was there - and the "Changes are live on
@@ -754,10 +758,13 @@ def notify_superseded(live_number: int) -> None:
     once per issue: deploy.sh restarts the poller, so commenting on every pass
     would bury the issue in noise.
     """
+    exclude = exclude or set()
     state = load_state()
     changed = False
     for issue in get_issues_with_label(LABEL_REVIEW):
         number = issue["number"]
+        if number in exclude:
+            continue
         issue_state = state.get(str(number), {})
         if number == live_number:
             # It holds the slot, so it must be told again if it later loses it.
@@ -794,13 +801,21 @@ def recover_stuck_issues() -> None:
     deploy_review_slot()
 
 
-def deploy_review_slot() -> int | None:
+def deploy_review_slot(exclude: set[int] | None = None) -> int | None:
     """Give the phone to the newest issue still awaiting review.
 
     Returns the issue number now deployed, or None if nothing is waiting (in
     which case the caller decides what to put there instead).
+
+    `exclude` is not an optimisation. Relabelling an issue out of review and
+    immediately asking GitHub which issues are in review still returns it -
+    the write has not propagated - so an issue just approved won the slot
+    straight back off the one actually waiting. The caller knows what it just
+    finished; it says so rather than trusting the re-query.
     """
-    reviewing = get_issues_with_label(LABEL_REVIEW)
+    exclude = exclude or set()
+    reviewing = [i for i in get_issues_with_label(LABEL_REVIEW)
+                 if i["number"] not in exclude]
     if not reviewing:
         return None
 
@@ -840,7 +855,7 @@ def deploy_review_slot() -> int | None:
 
     log.info("Live on the phone: issue #%d%s", live_number,
              f" (superseded {', '.join('#%d' % n for n in superseded)})" if superseded else "")
-    notify_superseded(live_number)
+    notify_superseded(live_number, exclude=exclude)
     return live_number
 
 
@@ -866,7 +881,7 @@ def hand_over_slot(just_finished: int) -> int | None:
     main to be current until the next issue starts, and `reset_to_main` pulls
     at that point anyway - so this avoids a second frontend build.
     """
-    live = deploy_review_slot()
+    live = deploy_review_slot(exclude={just_finished})
     if live is None:
         deploy_main()
         log.info("Issue #%d done, nothing else in review - main is live", just_finished)
