@@ -1,12 +1,13 @@
 """Derived analytics: energy balance, EWMA weight trend, TDEE back-estimation,
 rolling averages. Plain Python — series are tiny, no numpy needed."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..timeutil import now_local
 
 KCAL_PER_KG = 7700.0
 EWMA_ALPHA = 0.1
@@ -64,6 +65,33 @@ def ols_slope(points: list[tuple[int, float]]) -> float | None:
 
 # ---- energy balance -------------------------------------------------------------
 
+# Garmin's daily totals accumulate as the day runs: at 09:00 today's
+# totalKilocalories only covers the burn *so far*, which makes a same-day energy
+# balance look like a huge surplus. Projecting the resting burn for the rest of
+# the day (active calories can't be predicted) gives the projected day total the
+# Garmin Connect calories widget shows.
+MIN_ELAPSED_FRACTION = 1 / 24  # never extrapolate from less than an hour of data
+
+
+def project_calories_out(
+    calories_out: int | None, calories_bmr: int | None, elapsed_fraction: float
+) -> int | None:
+    """Day total burn, extrapolating the resting portion over the hours left."""
+    if calories_out is None:
+        return None
+    if not calories_bmr or elapsed_fraction >= 1.0:
+        return calories_out
+    f = max(elapsed_fraction, MIN_ELAPSED_FRACTION)
+    return round(calories_out + calories_bmr * (1 / f - 1))
+
+
+def _elapsed_fraction(day: str, now: datetime) -> float:
+    """How much of `day` has elapsed; 1.0 for any day that is not today."""
+    if day != now.date().isoformat():
+        return 1.0
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return (now - midnight).total_seconds() / 86400
+
 
 def energy_balance(db: Session, start: str, end: str) -> list[dict]:
     intake_rows = db.execute(
@@ -78,19 +106,26 @@ def energy_balance(db: Session, start: str, end: str) -> list[dict]:
     intake = {r[0]: (r[1], bool(r[2])) for r in intake_rows}
 
     out_rows = db.execute(
-        select(models.DailyMetrics.date, models.DailyMetrics.calories_total_out).where(
-            models.DailyMetrics.date >= start, models.DailyMetrics.date <= end
-        )
+        select(
+            models.DailyMetrics.date,
+            models.DailyMetrics.calories_total_out,
+            models.DailyMetrics.calories_bmr,
+        ).where(models.DailyMetrics.date >= start, models.DailyMetrics.date <= end)
     ).all()
-    cal_out = {r[0]: r[1] for r in out_rows}
+    cal_out = {r[0]: (r[1], r[2]) for r in out_rows}
 
     days = _date_range(start, end)
+    now = now_local()
     result = []
     balances: list[float | None] = []
     for d in days:
         cin, complete = intake.get(d, (None, False))
-        cout = cal_out.get(d)
+        cout, bmr = cal_out.get(d, (None, None))
+        projected = project_calories_out(cout, bmr, _elapsed_fraction(d, now))
         balance = round(cin - cout, 0) if (cin is not None and cout is not None) else None
+        balance_projected = (
+            round(cin - projected, 0) if (cin is not None and projected is not None) else None
+        )
         valid = balance is not None and complete
         balances.append(balance if valid else None)
         window = [b for b in balances[-7:] if b is not None]
@@ -99,7 +134,9 @@ def energy_balance(db: Session, start: str, end: str) -> list[dict]:
                 "date": d,
                 "calories_in": round(cin, 0) if cin is not None else None,
                 "calories_out": cout,
+                "calories_out_projected": projected,
                 "balance": balance,
+                "balance_projected": balance_projected,
                 "valid": valid,
                 "balance_7d_avg": round(sum(window) / len(window), 0) if window else None,
             }
@@ -333,7 +370,9 @@ def dashboard(db: Session, end: str, days: int = 30) -> dict:
                 "weight_trend": trend.get(d),
                 "calories_in": b.get("calories_in"),
                 "calories_out": b.get("calories_out"),
+                "calories_out_projected": b.get("calories_out_projected"),
                 "balance": b.get("balance"),
+                "balance_projected": b.get("balance_projected"),
             }
         )
 

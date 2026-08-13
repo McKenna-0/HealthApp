@@ -13,7 +13,9 @@ export interface DashboardDay {
   weight_trend: number | null
   calories_in: number | null
   calories_out: number | null
+  calories_out_projected: number | null
   balance: number | null
+  balance_projected: number | null
 }
 
 export interface TdeeResult {
@@ -81,7 +83,9 @@ export interface EnergyBalanceDay {
   date: string
   calories_in: number | null
   calories_out: number | null
+  calories_out_projected: number | null
   balance: number | null
+  balance_projected: number | null
   valid: boolean
   balance_7d_avg: number | null
 }

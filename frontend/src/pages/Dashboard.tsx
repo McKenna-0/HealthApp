@@ -105,6 +105,9 @@ export default function Dashboard() {
 
   // series is sorted oldest-first; last entry = today
   const today = dash?.series?.[dash.series.length - 1]
+  // Garmin's burn total only covers the day so far, so today's balance is
+  // measured against the projected full-day burn instead.
+  const projBalance = today?.balance_projected ?? today?.balance ?? null
   const avg7 = dash?.averages_7d
   const recentWorkouts = workouts?.slice(0, 3)
 
@@ -184,7 +187,8 @@ export default function Dashboard() {
             <ChevronRight size={16} color="var(--muted)" />
           </div>
           {today ? (
-            <div style={{ display: 'flex', gap: 16 }}>
+            // 2x2 rather than a 4-wide row: four values do not fit across 390px
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
               <div>
                 <div className="text-caption">Calories In</div>
                 <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_in ?? '–'}</div>
@@ -194,12 +198,16 @@ export default function Dashboard() {
                 <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_out ?? '–'}</div>
               </div>
               <div>
-                <div className="text-caption">Balance</div>
+                <div className="text-caption">Projected Burn</div>
+                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_out_projected ?? '–'}</div>
+              </div>
+              <div>
+                <div className="text-caption">Balance (proj)</div>
                 <div className="text-body" style={{
                   fontWeight: 600,
-                  color: today.balance != null ? getBalanceColor(today.balance, settings?.daily_balance_target ?? null) : undefined,
+                  color: projBalance != null ? getBalanceColor(projBalance, settings?.daily_balance_target ?? null) : undefined,
                 }}>
-                  {today.balance != null ? `${today.balance > 0 ? '+' : ''}${today.balance}` : '–'}
+                  {projBalance != null ? `${projBalance > 0 ? '+' : ''}${projBalance}` : '–'}
                 </div>
               </div>
             </div>
