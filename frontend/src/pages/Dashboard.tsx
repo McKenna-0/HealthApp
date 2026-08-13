@@ -2,13 +2,17 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  Heart, Moon, Footprints, Flame, Activity, Battery,
+  Heart, Moon, Footprints, Flame, Activity, Battery, Scale,
   ChevronRight,
 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
-import type { Dashboard as DashboardData, CorrelationsResponse, Workout } from '../api/types'
+import type {
+  Dashboard as DashboardData, CorrelationsResponse, Workout, WeightProgress,
+} from '../api/types'
 import { getBalanceColor } from '../utils/balanceColor'
+import { loadMetricsConfig } from '../utils/dashboardMetrics'
+import { formatRate, statusColor } from '../utils/weightStatus'
 import MetricCard from '../components/MetricCard'
 import MetricDrillDown from '../components/MetricDrillDown'
 import SyncStatusCard from '../components/SyncStatusCard'
@@ -23,8 +27,6 @@ interface Settings {
   daily_balance_target: number | null
 }
 
-const DEFAULT_METRICS = ['hrv', 'sleep_score', 'calories_out', 'steps', 'resting_hr', 'body_battery']
-
 const METRIC_DEFS: Record<string, { label: string; icon: typeof Heart; unit?: string }> = {
   hrv:          { label: 'HRV',        icon: Activity,   unit: 'ms' },
   sleep_score:  { label: 'Sleep',      icon: Moon },
@@ -32,6 +34,7 @@ const METRIC_DEFS: Record<string, { label: string; icon: typeof Heart; unit?: st
   steps:        { label: 'Steps',      icon: Footprints },
   resting_hr:   { label: 'Rest HR',    icon: Heart,      unit: 'bpm' },
   body_battery: { label: 'Battery',    icon: Battery },
+  weight:       { label: 'Weight',     icon: Scale,      unit: 'kg' },
 }
 
 // Maps metric key -> field on DashboardDay
@@ -45,6 +48,8 @@ function getMetricValue(day: DashboardData['series'][0] | undefined, key: string
     resting_hr:   day.resting_hr,
     // live/most-recently-synced reading, not the day's historical peak
     body_battery: day.body_battery_current,
+    // the sparkline wants the de-noised line, not the scale's daily wobble
+    weight:       day.weight_trend ?? day.weight,
   }
   return map[key] ?? null
 }
@@ -57,9 +62,11 @@ function getAvgValue(avg: DashboardData['averages_7d'] | undefined, key: string)
     sleep_score:  avg.sleep_score,
     steps:        avg.steps,
     resting_hr:   avg.resting_hr,
-    // calories_out and body_battery not in averages_7d
+    // calories_out, body_battery and weight are not in averages_7d — weight
+    // gets its delta from the trend model instead of a 7-day mean
     calories_out: null,
     body_battery: null,
+    weight: null,
   }
   return map[key] ?? null
 }
@@ -74,14 +81,7 @@ const READINESS_COLORS: Record<string, string> = {
 
 export default function Dashboard() {
   const [drillDown, setDrillDown] = useState<string | null>(null)
-  const [metricsConfig] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('dashboard-metrics-config')
-      return saved ? JSON.parse(saved) : DEFAULT_METRICS
-    } catch {
-      return DEFAULT_METRICS
-    }
-  })
+  const [metricsConfig] = useState<string[]>(loadMetricsConfig)
 
   const { data: dash, isLoading } = useQuery<DashboardData>({
     queryKey: ['dashboard', 30],
@@ -101,6 +101,15 @@ export default function Dashboard() {
   const { data: settings } = useQuery<Settings>({
     queryKey: ['settings'],
     queryFn: () => apiGet('/api/settings'),
+  })
+
+  // Only fetched when the tile is on: the trend model is a separate, heavier
+  // query than the dashboard roll-up and nothing else on this page needs it.
+  const showWeight = metricsConfig.includes('weight')
+  const { data: weightProgress } = useQuery<WeightProgress>({
+    queryKey: ['weight-progress', 90, 0],
+    queryFn: () => apiGet('/api/analytics/weight-progress?days=90&horizon=0'),
+    enabled: showWeight,
   })
 
   // series is sorted oldest-first; last entry = today
@@ -134,10 +143,31 @@ export default function Dashboard() {
           metricsConfig.map(key => {
             const def = METRIC_DEFS[key]
             if (!def) return null
+            const Icon = def.icon
+
+            // Weight reads from the trend model: the tile shows the smoothed
+            // weight and its weekly rate, coloured by how that rate compares
+            // with the goal, rather than a raw reading against a 7-day mean.
+            if (key === 'weight') {
+              const cur = weightProgress?.current
+              return (
+                <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
+                  <MetricCard
+                    icon={<Icon size={18} />}
+                    label={def.label}
+                    value={cur ? cur.trend_kg.toFixed(1) : null}
+                    delta={cur ? { value: cur.rate_kg_per_week, suffix: ' kg/wk' } : undefined}
+                    deltaColor={cur?.status ? statusColor(cur.status) : undefined}
+                    deltaText={cur ? formatRate(cur.rate_kg_per_week) : undefined}
+                    onClick={() => setDrillDown(key)}
+                  />
+                </div>
+              )
+            }
+
             const val = getMetricValue(today, key)
             const avgVal = getAvgValue(avg7, key)
             const delta = val != null && avgVal != null ? +(val - avgVal).toFixed(1) : undefined
-            const Icon = def.icon
             return (
               <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
                 <MetricCard
@@ -298,7 +328,14 @@ export default function Dashboard() {
           open={!!drillDown}
           onClose={() => setDrillDown(null)}
           title={METRIC_DEFS[drillDown]?.label || drillDown}
-          value={today ? getMetricValue(today, drillDown)?.toString() : undefined}
+          value={
+            drillDown === 'weight'
+              // the raw trend carries 3 decimals; a body weight wants one
+              ? weightProgress?.current
+                ? `${weightProgress.current.trend_kg.toFixed(1)} kg`
+                : undefined
+              : today ? getMetricValue(today, drillDown)?.toString() : undefined
+          }
         >
           {drillDown === 'sleep_score' && <SleepDrillDown />}
           {drillDown === 'hrv' && <HrvDrillDown />}

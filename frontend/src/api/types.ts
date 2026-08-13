@@ -79,6 +79,67 @@ export interface WeightTrendPoint {
   trend: number | null
 }
 
+export type RateStatus = 'on_track' | 'too_slow' | 'too_fast' | 'wrong_way'
+
+export interface WeightProgressPoint {
+  date: string
+  weight: number | null
+  trend: number | null
+  trend_lo: number | null
+  trend_hi: number | null
+  goal: number | null
+  rate_kg_per_week: number | null
+  status: RateStatus | null
+}
+
+export interface WeightForecastPoint {
+  date: string
+  projected: number
+  lo: number
+  hi: number
+  goal: number | null
+}
+
+export interface WeightProgressCurrent {
+  date: string
+  trend_kg: number
+  latest_scale_kg: number | null
+  rate_kg_per_week: number
+  rate_lo_kg_per_week: number
+  rate_hi_kg_per_week: number
+  rate_kcal_per_day: number
+  weigh_ins: number
+  status: RateStatus | null
+  bands: {
+    max_loss_kg_per_week: number
+    max_gain_kg_per_week: number
+    maintain_tolerance_kg_per_week: number
+  }
+  observation_sd_kg: number
+}
+
+export interface WeightGoalSummary {
+  target_kg: number | null
+  rate_kg_per_week: number | null
+  start_date: string
+  start_kg: number
+  remaining_kg: number | null
+  eta_actual: string | null
+  eta_planned: string | null
+  on_plan_delta_kg: number | null
+}
+
+export interface WeightProgress {
+  start: string
+  end: string
+  series: WeightProgressPoint[]
+  forecast: WeightForecastPoint[]
+  current: WeightProgressCurrent | null
+  goal: WeightGoalSummary | null
+  method: string
+  reason: string | null
+}
+
 export interface EnergyBalanceDay {
   date: string
   calories_in: number | null
