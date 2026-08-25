@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiDelete, apiGet, apiPost } from '../api/client'
 import type { Workout, WorkoutSummary } from '../api/types'
+import EditableWorkoutName from '../components/EditableWorkoutName'
 import MuscleBodyMap from '../components/MuscleBodyMap'
 
 function fmtDuration(min: number | null) {
@@ -44,8 +45,14 @@ export default function WorkoutSummaryPage() {
         >
           <ArrowLeft size={20} />
         </button>
-        <div style={{ flex: 1 }}>
-          <h1 className="text-display" style={{ margin: 0 }}>{data.name ?? 'Workout'}</h1>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 className="text-display" style={{ margin: 0 }}>
+            <EditableWorkoutName
+              workoutId={data.workout_id}
+              name={data.name}
+              editable={data.source !== 'garmin'}
+            />
+          </h1>
           <span className="text-caption" style={{ color: 'var(--muted)' }}>{data.date}</span>
         </div>
       </div>

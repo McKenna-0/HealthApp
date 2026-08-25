@@ -95,6 +95,24 @@ def test_workout_summary_endpoint(client, db, bench):
     assert len(s["prs"]) == 1
 
 
+def test_rename_workout(client, db):
+    act = _workout(db, "2026-07-14")
+
+    r = client.put(f"/api/workouts/{act.id}/name", json={"name": "  Push Day A  "})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Push Day A"
+    assert client.get(f"/api/workouts/{act.id}").json()["activity"]["name"] == "Push Day A"
+
+    # blank names are rejected, as are names for garmin-sourced activities
+    assert client.put(f"/api/workouts/{act.id}/name", json={"name": "   "}).status_code == 422
+    assert client.put("/api/workouts/9999/name", json={"name": "x"}).status_code == 404
+
+    act.source = "garmin"
+    db.commit()
+    r = client.put(f"/api/workouts/{act.id}/name", json={"name": "Renamed"})
+    assert r.status_code == 409
+
+
 def test_exercises_last_session_endpoint(client, db, bench):
     act = _workout(db, "2026-07-10")
     _set(db, act, bench, weight=80, reps=8)
