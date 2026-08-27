@@ -3,6 +3,17 @@ async function handle<T>(resp: Response): Promise<T> {
     const body = await resp.text()
     throw new Error(`${resp.status}: ${body}`)
   }
+  // A 200 carrying HTML means the request fell through to the SPA shell rather
+  // than reaching the route — a server running code that predates the endpoint,
+  // or a stale service worker. Say so, instead of throwing an opaque JSON
+  // parse error that reads like the data is merely missing.
+  const contentType = resp.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw new Error(
+      `Expected JSON from ${resp.url} but got "${contentType || 'unknown'}". ` +
+        'The server may be running an older build than this app.',
+    )
+  }
   return resp.json() as Promise<T>
 }
 

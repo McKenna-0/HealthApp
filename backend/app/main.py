@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
@@ -85,6 +85,12 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
+        # An /api/* path that reaches here matched no router, so the SPA is the
+        # wrong answer: returning index.html hands the frontend HTML where it
+        # expects JSON, and the caller sees a 200. A stale server then looks
+        # like a feature that silently disappeared instead of a broken route.
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail=f"No such API route: /{path}")
         candidate = STATIC_DIR / path
         if path and candidate.is_file():
             return FileResponse(candidate)
