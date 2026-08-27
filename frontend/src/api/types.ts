@@ -373,6 +373,9 @@ export interface SessionPayload {
   planned_exercises: PlannedExercise[]
   ghosts: Record<string, ExerciseGhost>
   sets?: WorkoutSetBase[]
+  /** Per-set comparison against last session, keyed by set id. Recomputed
+   *  server-side on every fetch, so it reflects edits and deletes. */
+  set_results?: Record<string, SetLogResult>
 }
 
 export interface WorkoutSetBase {

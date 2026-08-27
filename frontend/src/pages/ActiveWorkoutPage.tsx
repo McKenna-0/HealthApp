@@ -51,7 +51,7 @@ export default function ActiveWorkoutPage() {
 
   const [extraExercises, setExtraExercises] = useState<PlannedExercise[]>([])
   const [extraGhosts, setExtraGhosts] = useState<Record<string, ExerciseGhost>>({})
-  const [results, setResults] = useState<Record<number, SetLogResult>>({})
+  const [pendingResults, setPendingResults] = useState<Record<string, SetLogResult>>({})
   const [showPicker, setShowPicker] = useState(false)
   const [removedExerciseIds, setRemovedExerciseIds] = useState<Set<number>>(new Set())
 
@@ -67,6 +67,14 @@ export default function ActiveWorkoutPage() {
 
   const ghosts: Record<string, ExerciseGhost> = { ...(session?.ghosts ?? {}), ...extraGhosts }
   const sets: WorkoutSetBase[] = session?.sets ?? []
+  // The server recomputes every comparison on each fetch, so it always wins
+  // over the response we cached at log time — otherwise editing a set leaves
+  // the old delta on screen. The cached ones only cover the gap between a
+  // mutation resolving and the refetch landing.
+  const results: Record<string, SetLogResult> = {
+    ...pendingResults,
+    ...(session?.set_results ?? {}),
+  }
   const elapsed = useElapsed(session?.activity.start_ts ?? null)
 
   const finish = useMutation({
@@ -178,8 +186,12 @@ export default function ActiveWorkoutPage() {
           ghost={ghosts[String(ex.exercise_id)]}
           results={results}
           onLogged={(res) => {
-            setResults((r) => ({ ...r, [res.set.id]: res }))
+            setPendingResults((r) => ({ ...r, [res.set.id]: res }))
             startRestTimer()
+            qc.invalidateQueries({ queryKey: ['active-session'] })
+          }}
+          onEdited={(res) => {
+            setPendingResults((r) => ({ ...r, [res.set.id]: res }))
             qc.invalidateQueries({ queryKey: ['active-session'] })
           }}
           onDeleted={() => qc.invalidateQueries({ queryKey: ['active-session'] })}
@@ -308,6 +320,7 @@ function ExerciseCard({
   ghost,
   results,
   onLogged,
+  onEdited,
   onDeleted,
   onExerciseRemoved,
 }: {
@@ -315,8 +328,9 @@ function ExerciseCard({
   workoutId: number
   sets: WorkoutSetBase[]
   ghost: ExerciseGhost | undefined
-  results: Record<number, SetLogResult>
+  results: Record<string, SetLogResult>
   onLogged: (res: SetLogResult) => void
+  onEdited: (res: SetLogResult) => void
   onDeleted: () => void
   onExerciseRemoved: () => void
 }) {
@@ -329,7 +343,6 @@ function ExerciseCard({
   const [editWeight, setEditWeight] = useState('')
   const [editReps, setEditReps] = useState('')
   const [showStats, setShowStats] = useState(false)
-  const qc = useQueryClient()
 
   const workingLogged = sets.filter((s) => !s.is_warmup).length
   const nextGhost = warmup ? undefined : ghost?.sets[workingLogged]
@@ -369,10 +382,10 @@ function ExerciseCard({
 
   const updateSet = useMutation({
     mutationFn: ({ setId, weight_kg, reps }: { setId: number; weight_kg: number | null; reps: number }) =>
-      apiPut(`/api/workouts/sets/${setId}`, { weight_kg, reps }),
-    onSuccess: () => {
+      apiPut<SetLogResult>(`/api/workouts/sets/${setId}`, { weight_kg, reps }),
+    onSuccess: (res) => {
       setEditingSetId(null)
-      qc.invalidateQueries({ queryKey: ['active-session'] })
+      onEdited(res)
     },
   })
 
@@ -441,23 +454,7 @@ function ExerciseCard({
           {/* Logged sets */}
           {sets.map((s) => {
             const num = sets.filter((x) => x.is_warmup === s.is_warmup && x.id <= s.id).length
-            let res = results[s.id]
-            if (!res && !s.is_warmup && ghost) {
-              const prev = ghost.sets.find((g) => g.set_number === num)
-              if (prev) {
-                res = {
-                  set: s,
-                  e1rm: null,
-                  is_pr: false,
-                  delta_weight_kg:
-                    s.weight_kg != null && prev.weight_kg != null
-                      ? Math.round((s.weight_kg - prev.weight_kg) * 100) / 100
-                      : null,
-                  delta_reps: s.reps - prev.reps,
-                }
-              }
-            }
-
+            const res = results[s.id]
             const isEditing = editingSetId === s.id
 
             return (
