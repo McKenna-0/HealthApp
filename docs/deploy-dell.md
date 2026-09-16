@@ -57,17 +57,24 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## 4. HTTPS via Tailscale
 
-On the Dell (PowerShell):
+On the Dell (bash):
 
-```powershell
-tailscale serve --bg --https=443 http://127.0.0.1:8000
-tailscale serve status   # shows https://<dell>.<tailnet>.ts.net
+```bash
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:8000
+tailscale serve status   # shows https://home-server.tail6b532d.ts.net:8443
 ```
+
+The health app lives on port **8443**, not the default 443 — the Dell also
+runs an unrelated project (`eolas`, `~/eolas`) that owns the tailnet hostname's
+default HTTPS root. The Tailscale device name for this machine is
+`home-server` (renamed at some point from `conor-latitude-3540`, which no
+longer resolves — if URLs stop working, check `tailscale status` for the
+current device name before assuming the app itself is broken).
 
 ## 5. iPhone
 
 1. Tailscale app on and connected.
-2. Safari → `https://<dell>.<tailnet>.ts.net`.
+2. Safari → `https://home-server.tail6b532d.ts.net:8443`.
 3. Share → **Add to Home Screen** — full PWA with camera/barcode support.
 
 ## 5.5. Windows laptop

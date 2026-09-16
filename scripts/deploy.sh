@@ -6,7 +6,7 @@ set -euo pipefail
 
 DELL_HOST="conor@100.95.44.32"
 APP_DIR="health-app"
-APP_URL="https://conor-latitude-3540.tail6b532d.ts.net"
+APP_URL="https://home-server.tail6b532d.ts.net:8443"
 
 echo "==> Building frontend locally..."
 bash scripts/build_frontend.sh
