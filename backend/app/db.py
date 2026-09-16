@@ -70,9 +70,9 @@ def _add_missing_columns() -> None:
                     elif isinstance(arg, str):
                         ddl += f" DEFAULT '{arg}'"
                 conn.execute(text(ddl))
-        # Partial unique index for idempotent MFP food sync
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_foodlog_mfp "
-            "ON food_log(date, meal, description, source) "
-            "WHERE source = 'myfitnesspal'"
-        ))
+        # uq_foodlog_mfp used to enforce MFP sync idempotency, but sync_date()
+        # already does that itself (delete-then-insert per day). The index
+        # instead broke on a real MFP diary: the same food logged twice in one
+        # meal has identical (date, meal, description, source), which is a
+        # legitimate duplicate, not a re-sync collision.
+        conn.execute(text("DROP INDEX IF EXISTS uq_foodlog_mfp"))

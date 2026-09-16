@@ -170,6 +170,7 @@ def sync_range(db: Session, start: date, end: date) -> dict:
             n = sync_date(db, cookies, day)
             total += n
         except Exception as exc:
+            db.rollback()
             errors.append(f"{day}: {exc}")
             logger.warning("MFP sync failed for %s: %s", day, exc)
         day += timedelta(days=1)
