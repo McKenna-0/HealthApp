@@ -83,9 +83,16 @@ def active_session(db: Session = Depends(get_db)):
         .order_by(models.WorkoutSet.id)
     ).all()
     payload = _session_payload(db, act, planned)
-    payload["sets"] = [
-        schemas.WorkoutSetOut.model_validate(ws).model_dump() for ws in sets
-    ]
+    set_out = {ws.id: schemas.WorkoutSetOut.model_validate(ws).model_dump() for ws in sets}
+    payload["sets"] = list(set_out.values())
+    # comparisons live on the payload rather than only on the log response, so
+    # they survive an edit, a delete or a reload
+    payload["set_results"] = {
+        str(set_id): {"set": set_out[set_id], **comparison}
+        for set_id, comparison in strength.session_set_results(
+            db, act.id, act.date, list(sets)
+        ).items()
+    }
     return {"active": payload}
 
 
@@ -197,6 +204,13 @@ def _get_activity(db: Session, workout_id: int) -> models.Activity:
     if not row:
         raise HTTPException(404, "Workout not found")
     return row
+
+
+def _set_result(db: Session, row: models.WorkoutSet, activity_date: str) -> dict:
+    return {
+        "set": schemas.WorkoutSetOut.model_validate(row).model_dump(),
+        **strength.set_result(db, row, activity_date),
+    }
 
 
 @router.get("/{workout_id}")
@@ -400,47 +414,10 @@ def add_set(workout_id: int, body: schemas.WorkoutSetIn, db: Session = Depends(g
     )
     db.add(row)
     db.commit()
-
-    e1rm = None
-    is_pr = False
-    delta_weight = None
-    delta_reps = None
-    if not row.is_warmup:
-        if row.weight_kg is not None:
-            e1rm = round(strength.epley_1rm(row.weight_kg, row.reps), 1)
-            is_pr = strength.is_new_pr(db, row, act.date)
-        # compare against the same working-set ordinal from last session
-        last = strength.last_session_data(
-            db, [body.exercise_id], before_activity_id=workout_id
-        ).get(body.exercise_id)
-        if last:
-            working_ordinal = db.scalar(
-                select(func.count())
-                .select_from(models.WorkoutSet)
-                .where(
-                    models.WorkoutSet.activity_id == workout_id,
-                    models.WorkoutSet.exercise_id == body.exercise_id,
-                    models.WorkoutSet.is_warmup == 0,
-                    models.WorkoutSet.id <= row.id,
-                )
-            )
-            prev = next(
-                (s for s in last["sets"] if s["set_number"] == working_ordinal), None
-            )
-            if prev:
-                if row.weight_kg is not None and prev["weight_kg"] is not None:
-                    delta_weight = round(row.weight_kg - prev["weight_kg"], 2)
-                delta_reps = row.reps - prev["reps"]
-    return {
-        "set": schemas.WorkoutSetOut.model_validate(row).model_dump(),
-        "e1rm": e1rm,
-        "is_pr": is_pr,
-        "delta_weight_kg": delta_weight,
-        "delta_reps": delta_reps,
-    }
+    return _set_result(db, row, act.date)
 
 
-@router.put("/sets/{set_id}", response_model=schemas.WorkoutSetOut)
+@router.put("/sets/{set_id}", response_model=schemas.SetLogResult)
 def update_set(set_id: int, body: schemas.WorkoutSetUpdate, db: Session = Depends(get_db)):
     row = db.get(models.WorkoutSet, set_id)
     if not row:
@@ -449,7 +426,10 @@ def update_set(set_id: int, body: schemas.WorkoutSetUpdate, db: Session = Depend
         setattr(row, k, v)
     row.source = "manual"  # edited by hand
     db.commit()
-    return row
+    # the edit moves the numbers, so hand back a freshly computed comparison
+    # rather than the bare row — the client has no way to recompute it
+    act = _get_activity(db, row.activity_id)
+    return _set_result(db, row, act.date)
 
 
 @router.delete("/sets/{set_id}")

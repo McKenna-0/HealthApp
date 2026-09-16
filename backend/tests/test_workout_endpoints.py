@@ -147,3 +147,92 @@ def test_custom_exercise_with_muscles(client):
         json={"name": "Bad", "category": "other", "primary_muscles": ["wings"]},
     )
     assert r.status_code == 422
+
+
+def _active(db, date, ext="app:active"):
+    act = models.Activity(
+        external_id=ext, date=date, source="app",
+        type="strength_training", status="active", synced_at="x",
+    )
+    db.add(act)
+    db.commit()
+    return act
+
+
+def test_update_set_returns_recomputed_comparison(client, db, bench):
+    """Editing a set must re-run the last-session comparison, not echo the row."""
+    prev = _workout(db, "2026-07-10", ext="app:prev")
+    _set(db, prev, bench, weight=80, reps=8)
+    cur = _active(db, "2026-07-14")
+
+    logged = client.post(
+        f"/api/workouts/{cur.id}/sets",
+        json={"exercise_id": bench.id, "reps": 8, "weight_kg": 85.0, "is_warmup": 0},
+    ).json()
+    assert logged["delta_weight_kg"] == 5.0
+    set_id = logged["set"]["id"]
+
+    r = client.put(f"/api/workouts/sets/{set_id}", json={"weight_kg": 90.0, "reps": 10})
+    assert r.status_code == 200
+    out = r.json()
+    assert out["set"]["weight_kg"] == 90.0
+    assert out["set"]["reps"] == 10
+    assert out["delta_weight_kg"] == 10.0
+    assert out["delta_reps"] == 2
+    assert out["e1rm"] == 120.0
+    assert out["is_pr"] is True
+
+
+def test_update_set_can_erase_a_pr(client, db, bench):
+    """Editing down past a previous best clears the PR flag."""
+    prev = _workout(db, "2026-07-10", ext="app:prev")
+    _set(db, prev, bench, weight=100, reps=5)
+    cur = _active(db, "2026-07-14")
+
+    logged = client.post(
+        f"/api/workouts/{cur.id}/sets",
+        json={"exercise_id": bench.id, "reps": 5, "weight_kg": 110.0, "is_warmup": 0},
+    ).json()
+    assert logged["is_pr"] is True
+
+    out = client.put(
+        f"/api/workouts/sets/{logged['set']['id']}", json={"weight_kg": 90.0, "reps": 5}
+    ).json()
+    assert out["is_pr"] is False
+    assert out["delta_weight_kg"] == -10.0
+
+
+def test_active_session_carries_set_results(client, db, bench):
+    """The session payload is the source of truth for the comparison chips, so
+    a refetch after an edit shows the edited numbers."""
+    prev = _workout(db, "2026-07-10", ext="app:prev")
+    _set(db, prev, bench, weight=80, reps=8)
+    _set(db, prev, bench, weight=80, reps=6, n=2)
+    cur = _active(db, "2026-07-14")
+
+    client.post(
+        f"/api/workouts/{cur.id}/sets",
+        json={"exercise_id": bench.id, "reps": 5, "weight_kg": 40.0, "is_warmup": 1},
+    )
+    first = client.post(
+        f"/api/workouts/{cur.id}/sets",
+        json={"exercise_id": bench.id, "reps": 8, "weight_kg": 85.0, "is_warmup": 0},
+    ).json()
+    client.post(
+        f"/api/workouts/{cur.id}/sets",
+        json={"exercise_id": bench.id, "reps": 6, "weight_kg": 85.0, "is_warmup": 0},
+    )
+
+    client.put(f"/api/workouts/sets/{first['set']['id']}", json={"weight_kg": 95.0, "reps": 8})
+
+    payload = client.get("/api/workouts/sessions/active").json()["active"]
+    results = payload["set_results"]
+    edited = results[str(first["set"]["id"])]
+    assert edited["set"]["weight_kg"] == 95.0
+    assert edited["delta_weight_kg"] == 15.0
+    assert edited["delta_reps"] == 0
+    # warm-ups have no comparison, and the second working set keeps its own
+    # ordinal against last session
+    assert len([k for k in results]) == 2
+    others = [v for k, v in results.items() if k != str(first["set"]["id"])]
+    assert others[0]["delta_weight_kg"] == 5.0

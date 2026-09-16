@@ -4,7 +4,7 @@ weekly volume. PRs are computed on demand — trivial at single-user scale."""
 from collections import defaultdict
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -139,6 +139,80 @@ def last_session_data(
         ex_id: {"date": v["date"], "sets": v["sets"], "best_e1rm": v["best_e1rm"]}
         for ex_id, v in latest.items()
     }
+
+
+def set_comparison(
+    db: Session,
+    row: models.WorkoutSet,
+    activity_date: str,
+    last: dict | None,
+    ordinal: int,
+) -> dict:
+    """e1RM, PR flag and deltas against the same working-set ordinal of the
+    previous session. Derived from the row as it stands, never cached, so an
+    edit re-derives it. `last` is that exercise's `last_session_data` entry."""
+    e1rm = None
+    is_pr = False
+    delta_weight = None
+    delta_reps = None
+    if not row.is_warmup:
+        if row.weight_kg is not None:
+            e1rm = round(epley_1rm(row.weight_kg, row.reps), 1)
+            is_pr = is_new_pr(db, row, activity_date)
+        prev = (
+            next((s for s in last["sets"] if s["set_number"] == ordinal), None)
+            if last
+            else None
+        )
+        if prev:
+            if row.weight_kg is not None and prev["weight_kg"] is not None:
+                delta_weight = round(row.weight_kg - prev["weight_kg"], 2)
+            delta_reps = row.reps - prev["reps"]
+    return {
+        "e1rm": e1rm,
+        "is_pr": is_pr,
+        "delta_weight_kg": delta_weight,
+        "delta_reps": delta_reps,
+    }
+
+
+def set_result(db: Session, row: models.WorkoutSet, activity_date: str) -> dict:
+    """`set_comparison` for a single set, fetching its own last-session data."""
+    last = last_session_data(
+        db, [row.exercise_id], before_activity_id=row.activity_id
+    ).get(row.exercise_id)
+    ordinal = db.scalar(
+        select(func.count())
+        .select_from(models.WorkoutSet)
+        .where(
+            models.WorkoutSet.activity_id == row.activity_id,
+            models.WorkoutSet.exercise_id == row.exercise_id,
+            models.WorkoutSet.is_warmup == 0,
+            models.WorkoutSet.id <= row.id,
+        )
+    )
+    return set_comparison(db, row, activity_date, last, ordinal)
+
+
+def session_set_results(
+    db: Session, activity_id: int, activity_date: str, sets: list[models.WorkoutSet]
+) -> dict[int, dict]:
+    """Comparisons for every working set of a session, keyed by set id. Warm-ups
+    have nothing to compare against and are omitted."""
+    working = sorted((s for s in sets if not s.is_warmup), key=lambda s: s.id)
+    if not working:
+        return {}
+    last = last_session_data(
+        db, sorted({s.exercise_id for s in working}), before_activity_id=activity_id
+    )
+    ordinals: dict[int, int] = defaultdict(int)
+    out: dict[int, dict] = {}
+    for s in working:
+        ordinals[s.exercise_id] += 1
+        out[s.id] = set_comparison(
+            db, s, activity_date, last.get(s.exercise_id), ordinals[s.exercise_id]
+        )
+    return out
 
 
 def exercise_history(db: Session, exercise_id: int) -> list[dict]:
