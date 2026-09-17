@@ -45,14 +45,20 @@ function CheckinSheet({
   open,
   onClose,
   date,
-  data,
 }: {
   open: boolean
   onClose: () => void
   date: string
-  data: CheckinResponse | undefined
 }) {
   const qc = useQueryClient()
+
+  // The sheet owns its query: the card behind it can be pointed at a different
+  // date than the sheet (today's view prompts yesterday's check-in).
+  const { data } = useQuery<CheckinResponse>({
+    queryKey: ['checkin', date],
+    queryFn: () => apiGet(`/api/checkin?date=${date}`),
+    enabled: open,
+  })
 
   const [mood, setMood] = useState<number | null>(null)
   const [alcohol, setAlcohol] = useState(0)
@@ -63,30 +69,30 @@ function CheckinSheet({
   const [eatStart, setEatStart] = useState('')
   const [eatEnd, setEatEnd] = useState('')
   const [note, setNote] = useState('')
-  const [loaded, setLoaded] = useState(false)
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
-  // Populate from existing data whenever sheet opens (or data arrives)
+  // Populate whenever the sheet opens, data arrives, or the target date
+  // changes. Every field is written on each pass — a date with no check-in
+  // must clear the form, not inherit the previously opened date's answers.
   useEffect(() => {
     if (!open || !data) return
-    if (loaded) return
-    setLoaded(true)
+    if (loadedFor === date) return
+    setLoadedFor(date)
     const c = data.checkin
-    if (c) {
-      setMood(c.mood)
-      setAlcohol(c.alcohol_units)
-      setCaffeine(c.caffeine_cups)
-      setCaffeineTime(c.caffeine_last_time ?? '')
-      setIll(c.illness === 1)
-      setEatStart(c.eating_start ?? '')
-      setEatEnd(c.eating_end ?? '')
-      setNote(c.note ?? '')
-    }
-    if (data.weight_kg != null) setWeight(String(data.weight_kg))
-  }, [open, data, loaded])
+    setMood(c?.mood ?? null)
+    setAlcohol(c?.alcohol_units ?? 0)
+    setCaffeine(c?.caffeine_cups ?? 0)
+    setCaffeineTime(c?.caffeine_last_time ?? '')
+    setIll(c?.illness === 1)
+    setEatStart(c?.eating_start ?? '')
+    setEatEnd(c?.eating_end ?? '')
+    setNote(c?.note ?? '')
+    setWeight(data.weight_kg != null ? String(data.weight_kg) : '')
+  }, [open, data, date, loadedFor])
 
-  // Reset loaded flag when sheet closes so next open re-populates
+  // Reset when sheet closes so next open re-populates
   useEffect(() => {
-    if (!open) setLoaded(false)
+    if (!open) setLoadedFor(null)
   }, [open])
 
   const save = useMutation({
@@ -113,7 +119,7 @@ function CheckinSheet({
   })
 
   return (
-    <BottomSheet open={open} onClose={onClose} title="Daily Check-in">
+    <BottomSheet open={open} onClose={onClose} title={`Check-in · ${dateLabel(date)}`}>
       <div style={{ padding: '0 16px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Mood */}
         <div>
@@ -539,8 +545,17 @@ export default function LogPage() {
   const date = params.get('date') ?? today
   const setDate = (d: string) => setParams(d === today ? {} : { date: d })
   const isDateToday = date === today
+  // A day can only be reviewed honestly once it's over, so on today's view the
+  // check-in card prompts for yesterday instead of today. Past dates prompt
+  // for themselves.
+  const checkinCardDate = isDateToday ? shiftDate(today, -1) : date
 
   const [showCheckin, setShowCheckin] = useState(false)
+  const [checkinSheetDate, setCheckinSheetDate] = useState(checkinCardDate)
+  const openCheckin = (d: string) => {
+    setCheckinSheetDate(d)
+    setShowCheckin(true)
+  }
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [showWeightLog, setShowWeightLog] = useState(false)
   const [showNote, setShowNote] = useState(false)
@@ -551,8 +566,8 @@ export default function LogPage() {
     queryFn: () => apiGet(`/api/food/log?date=${date}`),
   })
   const { data: checkinResp, isLoading: loadingCheckin } = useQuery<CheckinResponse>({
-    queryKey: ['checkin', date],
-    queryFn: () => apiGet(`/api/checkin?date=${date}`),
+    queryKey: ['checkin', checkinCardDate],
+    queryFn: () => apiGet(`/api/checkin?date=${checkinCardDate}`),
   })
   const { data: streak, isLoading: loadingStreak } = useQuery<StreakInfo>({
     queryKey: ['streak'],
@@ -647,9 +662,9 @@ export default function LogPage() {
       ) : (
       <div className="card" style={{ marginTop: 12 }}>
         {checkin ? (
-          <div onClick={() => setShowCheckin(true)} style={{ cursor: 'pointer' }}>
+          <div onClick={() => openCheckin(checkinCardDate)} style={{ cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span className="text-title">Check-in</span>
+              <span className="text-title">{isDateToday ? "Yesterday's check-in" : 'Check-in'}</span>
               <span className="text-caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>Edit</span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -680,17 +695,31 @@ export default function LogPage() {
           </div>
         ) : (
           <div>
-            <div className="text-title" style={{ marginBottom: 6 }}>How's your day?</div>
+            <div className="text-title" style={{ marginBottom: 6 }}>
+              {isDateToday ? 'How was yesterday?' : 'How was your day?'}
+            </div>
             <div className="text-caption" style={{ color: 'var(--muted)', marginBottom: 12 }}>
               Mood, alcohol, caffeine &amp; more — keeps your streak alive
             </div>
             <button
-              onClick={() => setShowCheckin(true)}
+              onClick={() => openCheckin(checkinCardDate)}
               style={{ width: '100%', minHeight: 48, borderRadius: 12, background: 'var(--accent)', color: 'white', border: 'none', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}
             >
-              Check in
+              {isDateToday ? 'Check in for yesterday' : 'Check in'}
             </button>
           </div>
+        )}
+        {isDateToday && (
+          <button
+            onClick={() => openCheckin(today)}
+            style={{
+              display: 'block', width: '100%', marginTop: 8, minHeight: 44,
+              background: 'none', border: 'none', color: 'var(--muted)',
+              fontSize: '0.8rem', cursor: 'pointer',
+            }}
+          >
+            Check in for today instead
+          </button>
         )}
       </div>
       )}
@@ -794,8 +823,7 @@ export default function LogPage() {
       <CheckinSheet
         open={showCheckin}
         onClose={() => setShowCheckin(false)}
-        date={date}
-        data={checkinResp}
+        date={checkinSheetDate}
       />
       <QuickAddSheet
         open={showQuickAdd}
