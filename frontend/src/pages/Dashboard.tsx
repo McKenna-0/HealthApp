@@ -3,12 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Heart, Moon, Footprints, Flame, Activity, Battery, Scale,
-  ChevronRight,
+  ChevronRight, Check,
 } from 'lucide-react'
-import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts'
 import { apiGet } from '../api/client'
 import type {
   Dashboard as DashboardData, CorrelationsResponse, Workout, WeightProgress,
+  Readiness, StreakInfo,
 } from '../api/types'
 import { getBalanceColor } from '../utils/balanceColor'
 import { loadMetricsConfig } from '../utils/dashboardMetrics'
@@ -79,6 +79,179 @@ const READINESS_COLORS: Record<string, string> = {
   no_data:            'var(--muted)',
 }
 
+/* The API labels read as a list ("Resting HR vs baseline"); as a row of four
+   chips at 390px they need names, not sentences. Falls back to the API label
+   with its qualifiers stripped if the backend adds a component. */
+const READINESS_SHORT: Record<string, string> = {
+  hrv: 'HRV',
+  rhr: 'Rest HR',
+  sleep: 'Sleep',
+  body_battery: 'Battery',
+}
+
+const RING_R = 44
+const RING_C = 2 * Math.PI * RING_R
+
+/**
+ * Readiness is the only number on this page that is different every morning,
+ * so it leads. It used to be the last card, rendered as a bullet list.
+ */
+function ReadinessHero({ readiness }: { readiness: Readiness }) {
+  const color = READINESS_COLORS[readiness.status] ?? 'var(--muted)'
+  const pct = readiness.score_pct
+  const offset = pct != null ? RING_C * (1 - Math.max(0, Math.min(100, pct)) / 100) : RING_C
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <svg width="104" height="104" viewBox="0 0 104 104" style={{ flexShrink: 0 }} aria-hidden="true">
+          <circle cx="52" cy="52" r={RING_R} fill="none" stroke="var(--track)" strokeWidth="9" />
+          <circle
+            cx="52" cy="52" r={RING_R} fill="none"
+            stroke={color} strokeWidth="9" strokeLinecap="round"
+            strokeDasharray={RING_C} strokeDashoffset={offset}
+            transform="rotate(-90 52 52)"
+            style={{ transition: 'stroke-dashoffset 400ms cubic-bezier(.22,1,.36,1)' }}
+          />
+          <text
+            x="52" y="51" textAnchor="middle" fill="var(--text)"
+            fontSize="30" fontWeight="700" fontFamily="inherit"
+          >
+            {pct ?? '–'}
+          </text>
+          <text
+            x="52" y="68" textAnchor="middle" fill="var(--muted)"
+            fontSize="10" fontWeight="600" letterSpacing="1.2" fontFamily="inherit"
+          >
+            READY
+          </text>
+        </svg>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.14em', color: 'var(--muted)' }}>
+            READINESS
+          </div>
+          <div style={{ fontSize: '1.375rem', fontWeight: 700, color, margin: '4px 0 6px', textTransform: 'capitalize' }}>
+            {readiness.label}
+          </div>
+          <div className="text-caption" style={{ lineHeight: 1.45 }}>
+            {readiness.baseline_days} days of baseline
+          </div>
+        </div>
+      </div>
+
+      {readiness.components && readiness.components.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+          {readiness.components.map((c) => (
+            <div
+              key={c.key}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: 'var(--inset)',
+                borderRadius: 12,
+                padding: '8px 4px',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{
+                fontSize: '0.5625rem',
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                color: 'var(--muted)',
+                textTransform: 'uppercase',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {READINESS_SHORT[c.key] ?? c.label.replace(/\s*vs baseline/i, '').replace(/\s*\([^)]*\)/, '')}
+              </div>
+              <div className="tabular" style={{ fontSize: '0.875rem', fontWeight: 700, marginTop: 2 }}>
+                {c.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The open loop, on the screen you land on. Today previously showed nothing
+ * outstanding — you had to reach the Log tab before the app would admit
+ * anything was missing, which is the wrong place for a daily prompt.
+ */
+function TodayLoop({ streak, weightLogged }: { streak: StreakInfo; weightLogged: boolean }) {
+  const today = streak.week[streak.week.length - 1]
+  const chips = [
+    { label: weightLogged ? 'Weight' : 'Log weight', done: weightLogged },
+    { label: today?.checkin_done ? 'Check-in' : 'Check in', done: !!today?.checkin_done },
+    { label: today?.food_logged ? 'Food' : 'Log food', done: !!today?.food_logged },
+  ]
+  // The first thing still open is the primary action; everything else is quiet.
+  const firstOpen = chips.findIndex((c) => !c.done)
+
+  return (
+    <div className="card" style={{ padding: '12px 14px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Flame size={19} color="var(--amber)" style={{ flexShrink: 0 }} />
+        <span className="tabular" style={{ fontSize: '1.0625rem', fontWeight: 700 }}>
+          {streak.current_streak}
+        </span>
+        <span className="text-caption">day streak · best {streak.longest_streak}</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
+          {streak.week.map((d, i) => (
+            <span
+              key={d.date}
+              title={`${d.weekday}${d.complete ? ' · complete' : ''}`}
+              style={{
+                width: 17,
+                height: 17,
+                borderRadius: '50%',
+                boxSizing: 'border-box',
+                background: d.complete ? 'var(--green)' : 'transparent',
+                border: d.complete
+                  ? 'none'
+                  : `1.5px solid ${d.food_logged || d.checkin_done ? 'var(--amber)' : 'var(--track)'}`,
+                boxShadow: i === streak.week.length - 1 ? '0 0 0 2px rgba(34,211,238,0.5)' : undefined,
+              }}
+            />
+          ))}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {chips.map((c, i) => (
+          <Link
+            key={c.label}
+            to="/log"
+            style={{
+              flex: 1,
+              minHeight: 44,
+              borderRadius: 'var(--r-control)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              fontSize: '0.75rem',
+              fontWeight: c.done ? 600 : 700,
+              textDecoration: 'none',
+              background: c.done
+                ? 'rgba(52,211,153,0.12)'
+                : i === firstOpen ? 'var(--accent)' : 'rgba(255,255,255,0.05)',
+              color: c.done
+                ? 'var(--green)'
+                : i === firstOpen ? 'var(--accent-ink)' : 'var(--muted)',
+            }}
+          >
+            {c.done && <Check size={14} strokeWidth={3} />}
+            {c.label}
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [drillDown, setDrillDown] = useState<string | null>(null)
   const [metricsConfig] = useState<string[]>(loadMetricsConfig)
@@ -103,6 +276,12 @@ export default function Dashboard() {
     queryFn: () => apiGet('/api/settings'),
   })
 
+  // Same query key the Log page uses, so the two share one cache entry.
+  const { data: streak } = useQuery<StreakInfo>({
+    queryKey: ['streak'],
+    queryFn: () => apiGet('/api/checkin/streak'),
+  })
+
   // Only fetched when the tile is on: the trend model is a separate, heavier
   // query than the dashboard roll-up and nothing else on this page needs it.
   const showWeight = metricsConfig.includes('weight')
@@ -119,99 +298,25 @@ export default function Dashboard() {
   const projBalance = today?.balance_projected ?? today?.balance ?? null
   const avg7 = dash?.averages_7d
   const recentWorkouts = workouts?.slice(0, 3)
+  // The sparkline in each tile replaces the separate Trends card, which drew
+  // the same four metrics again lower down the page.
+  const sparkWindow = dash?.series?.slice(-14) ?? []
 
   return (
-    <div style={{ padding: '16px' }}>
+    <div style={{ padding: 'var(--s4)' }}>
       <SyncStatusCard />
 
-      {/* Metrics Row */}
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        overflowX: 'auto',
-        paddingBottom: 8,
-        WebkitOverflowScrolling: 'touch',
-        scrollSnapType: 'x mandatory',
-      }}>
-        {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} style={{ minWidth: 120, flex: '0 0 auto' }}>
-              <SkeletonLoader height="90px" borderRadius="14px" />
-            </div>
-          ))
-        ) : (
-          metricsConfig.map(key => {
-            const def = METRIC_DEFS[key]
-            if (!def) return null
-            const Icon = def.icon
-
-            // Weight reads from the trend model: the tile shows the smoothed
-            // weight and its weekly rate, coloured by how that rate compares
-            // with the goal, rather than a raw reading against a 7-day mean.
-            if (key === 'weight') {
-              const cur = weightProgress?.current
-              return (
-                <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
-                  <MetricCard
-                    icon={<Icon size={18} />}
-                    label={def.label}
-                    value={cur ? cur.trend_kg.toFixed(1) : null}
-                    delta={cur ? { value: cur.rate_kg_per_week, suffix: ' kg/wk' } : undefined}
-                    deltaColor={cur?.status ? statusColor(cur.status) : undefined}
-                    deltaText={cur ? formatRate(cur.rate_kg_per_week) : undefined}
-                    onClick={() => setDrillDown(key)}
-                  />
-                </div>
-              )
-            }
-
-            const val = getMetricValue(today, key)
-            const avgVal = getAvgValue(avg7, key)
-            const delta = val != null && avgVal != null ? +(val - avgVal).toFixed(1) : undefined
-            return (
-              <div key={key} style={{ minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start' }}>
-                <MetricCard
-                  icon={<Icon size={18} />}
-                  label={def.label}
-                  value={val != null ? val : null}
-                  delta={delta != null ? { value: delta, suffix: def.unit ? ` ${def.unit}` : '' } : undefined}
-                  onClick={() => setDrillDown(key)}
-                />
-              </div>
-            )
-          })
-        )}
-      </div>
-
-      {/* Recent Activities */}
-      {recentWorkouts && recentWorkouts.length > 0 && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span className="text-title">Recent Activities</span>
-            <Link to="/workouts" style={{ color: 'var(--accent)', fontSize: '0.8rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-              See all <ChevronRight size={14} />
-            </Link>
-          </div>
-          {recentWorkouts.map(w => (
-            <Link
-              key={w.id}
-              to={`/workouts/${w.id}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}
-            >
-              <Activity size={18} color="var(--muted)" />
-              <div style={{ flex: 1 }}>
-                <div className="text-body">{w.name || w.type}</div>
-                <div className="text-caption">{w.date}{w.duration_min ? ` · ${w.duration_min}min` : ''}</div>
-              </div>
-              <ChevronRight size={16} color="var(--muted)" />
-            </Link>
-          ))}
-        </div>
+      {isLoading ? (
+        <SkeletonLoader height="136px" borderRadius="22px" />
+      ) : (
+        dash?.readiness && <ReadinessHero readiness={dash.readiness} />
       )}
 
-      {/* Today's Log Summary */}
+      {streak && <TodayLoop streak={streak} weightLogged={today?.weight != null} />}
+
+      {/* Energy */}
       <Link to="/log" style={{ textDecoration: 'none', color: 'inherit' }}>
-        <div className="card" style={{ marginTop: 12 }}>
+        <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span className="text-title">Today's Log</span>
             <ChevronRight size={16} color="var(--muted)" />
@@ -221,19 +326,19 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
               <div>
                 <div className="text-caption">Calories In</div>
-                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_in ?? '–'}</div>
+                <div className="text-body tabular" style={{ fontWeight: 600 }}>{today.calories_in ?? '–'}</div>
               </div>
               <div>
                 <div className="text-caption">Burned</div>
-                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_out ?? '–'}</div>
+                <div className="text-body tabular" style={{ fontWeight: 600 }}>{today.calories_out ?? '–'}</div>
               </div>
               <div>
                 <div className="text-caption">Projected Burn</div>
-                <div className="text-body" style={{ fontWeight: 600 }}>{today.calories_out_projected ?? '–'}</div>
+                <div className="text-body tabular" style={{ fontWeight: 600 }}>{today.calories_out_projected ?? '–'}</div>
               </div>
               <div>
                 <div className="text-caption">Balance (proj)</div>
-                <div className="text-body" style={{
+                <div className="text-body tabular" style={{
                   fontWeight: 600,
                   color: projBalance != null ? getBalanceColor(projBalance, settings?.daily_balance_target ?? null) : undefined,
                 }}>
@@ -249,38 +354,93 @@ export default function Dashboard() {
         </div>
       </Link>
 
-      {/* Trends sparklines */}
-      {dash && dash.series.length > 7 && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="text-title" style={{ marginBottom: 12 }}>Trends</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {metricsConfig.slice(0, 4).map(key => {
-              const def = METRIC_DEFS[key]
-              if (!def) return null
-              const chartData = dash.series
-                .map(d => ({ v: getMetricValue(d, key) }))
-                .filter(d => d.v != null)
-              if (chartData.length < 3) return null
+      {/* Metrics. A 2-up grid rather than a horizontal strip: a side-scroll
+          nobody discovers hid whichever tiles came after the third. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 12 }}>
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonLoader key={i} height="104px" borderRadius="18px" />
+          ))
+        ) : (
+          metricsConfig.map(key => {
+            const def = METRIC_DEFS[key]
+            if (!def) return null
+            const Icon = def.icon
+            const spark = sparkWindow.map(d => getMetricValue(d, key))
+
+            // Weight reads from the trend model: the tile shows the smoothed
+            // weight and its weekly rate, coloured by how that rate compares
+            // with the goal, rather than a raw reading against a 7-day mean.
+            if (key === 'weight') {
+              const cur = weightProgress?.current
               return (
-                <div key={key} onClick={() => setDrillDown(key)} style={{ cursor: 'pointer' }}>
-                  <div className="text-caption" style={{ marginBottom: 4 }}>{def.label}</div>
-                  <ResponsiveContainer width="100%" height={50}>
-                    <LineChart data={chartData}>
-                      <YAxis domain={['dataMin', 'dataMax']} hide />
-                      <Line type="linear" dataKey="v" stroke="var(--accent)" strokeWidth={1.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                <MetricCard
+                  key={key}
+                  icon={<Icon size={13} />}
+                  label={def.label}
+                  value={cur ? cur.trend_kg.toFixed(1) : null}
+                  unit={def.unit}
+                  delta={cur ? { value: cur.rate_kg_per_week, suffix: ' kg/wk' } : undefined}
+                  deltaColor={cur?.status ? statusColor(cur.status) : undefined}
+                  deltaText={cur ? formatRate(cur.rate_kg_per_week) : undefined}
+                  spark={spark}
+                  onClick={() => setDrillDown(key)}
+                />
               )
-            })}
+            }
+
+            const val = getMetricValue(today, key)
+            const avgVal = getAvgValue(avg7, key)
+            const delta = val != null && avgVal != null ? +(val - avgVal).toFixed(1) : undefined
+            return (
+              <MetricCard
+                key={key}
+                icon={<Icon size={13} />}
+                label={def.label}
+                value={val != null ? val.toLocaleString() : null}
+                unit={def.unit}
+                delta={delta != null ? { value: delta, suffix: def.unit ? ` ${def.unit}` : '' } : undefined}
+                spark={spark}
+                onClick={() => setDrillDown(key)}
+              />
+            )
+          })
+        )}
+      </div>
+
+      {/* Recent Activities */}
+      {recentWorkouts && recentWorkouts.length > 0 && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span className="text-title">Recent Activities</span>
+            <Link
+              to="/workouts"
+              style={{ color: 'var(--accent)', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, minHeight: 44, paddingLeft: 12 }}
+            >
+              See all <ChevronRight size={14} />
+            </Link>
           </div>
+          {recentWorkouts.map(w => (
+            <Link
+              key={w.id}
+              to={`/workouts/${w.id}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, padding: '10px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}
+            >
+              <Activity size={18} color="var(--muted)" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-body">{w.name || w.type}</div>
+                <div className="text-caption">{w.date}{w.duration_min ? ` · ${w.duration_min}min` : ''}</div>
+              </div>
+              <ChevronRight size={16} color="var(--muted)" />
+            </Link>
+          ))}
         </div>
       )}
 
       {/* Insights */}
       {correlations?.insights && correlations.insights.filter(i => i.status === 'ok').length > 0 && (
         <Link to="/insights" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="card" style={{ marginTop: 12 }}>
+          <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span className="text-title">Insights</span>
               <ChevronRight size={16} color="var(--muted)" />
@@ -293,33 +453,6 @@ export default function Dashboard() {
             ))}
           </div>
         </Link>
-      )}
-
-      {/* Readiness */}
-      {dash?.readiness && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="text-title" style={{ marginBottom: 8 }}>Readiness</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: READINESS_COLORS[dash.readiness.status] ?? 'var(--muted)',
-              flexShrink: 0,
-            }} />
-            <span className="text-body" style={{ fontWeight: 600, textTransform: 'capitalize' }}>
-              {dash.readiness.label}
-            </span>
-            {dash.readiness.score_pct != null && (
-              <span className="text-caption">({dash.readiness.score_pct}%)</span>
-            )}
-          </div>
-          {dash.readiness.components?.map((c) => (
-            <div key={c.key} className="text-caption" style={{ padding: '2px 0' }}>
-              • {c.label}: {c.value} ({c.points}/{c.max_points} pts)
-            </div>
-          ))}
-        </div>
       )}
 
       {/* Metric Drill-Downs */}

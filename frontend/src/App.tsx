@@ -1,5 +1,5 @@
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
-import { Home, ClipboardList, Dumbbell, Sparkles, Settings } from 'lucide-react'
+import { Home, ClipboardList, Dumbbell, Sparkles, MoreHorizontal } from 'lucide-react'
 import GlobalSyncButton from './components/GlobalSyncButton'
 
 import Dashboard from './pages/Dashboard'
@@ -17,11 +17,14 @@ import InsightsPage from './pages/InsightsPage'
 import AIPage from './pages/AIPage'
 import AIChatPage from './pages/AIChatPage'
 import SettingsPage from './pages/SettingsPage'
+import MorePage from './pages/MorePage'
 
 const TABS = [
   { to: '/', icon: Home, label: 'Home' },
   { to: '/log', icon: ClipboardList, label: 'Log' },
-  { to: '/workouts', icon: Dumbbell, label: 'Workouts' },
+  { to: '/workouts', icon: Dumbbell, label: 'Train' },
+  { to: '/ai', icon: Sparkles, label: 'Coach' },
+  { to: '/more', icon: MoreHorizontal, label: 'More' },
 ]
 
 export default function App() {
@@ -33,7 +36,8 @@ export default function App() {
     if (location.pathname === '/log') return 'Log'
     if (location.pathname.startsWith('/workouts')) return 'Workouts'
     if (location.pathname === '/settings') return 'Settings'
-    if (location.pathname.startsWith('/ai')) return 'AI'
+    if (location.pathname.startsWith('/ai')) return 'Coach'
+    if (location.pathname === '/more') return 'More'
     if (location.pathname === '/insights') return 'Insights'
     if (location.pathname === '/bloodwork') return 'Bloodwork'
     return ''
@@ -45,12 +49,6 @@ export default function App() {
         <h1>{pageTitle}</h1>
         <div className="header-actions">
           <GlobalSyncButton hide={isActiveWorkout} />
-          <NavLink to="/ai" className={({isActive}) => `header-btn${isActive ? ' active' : ''}`} aria-label="AI assistant">
-            <Sparkles size={20} />
-          </NavLink>
-          <NavLink to="/settings" className={({isActive}) => `header-btn${isActive ? ' active' : ''}`} aria-label="Settings">
-            <Settings size={20} />
-          </NavLink>
         </div>
       </header>
 
@@ -69,13 +67,14 @@ export default function App() {
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/ai" element={<AIPage />} />
         <Route path="/ai/chat/:sessionId" element={<AIChatPage />} />
+        <Route path="/more" element={<MorePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
 
       <nav className="nav">
         {TABS.map(t => (
           <NavLink key={t.to} to={t.to} end={t.to === '/'}>
-            <t.icon size={24} />
+            <t.icon size={21} />
             <span>{t.label}</span>
           </NavLink>
         ))}

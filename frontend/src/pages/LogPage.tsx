@@ -7,12 +7,11 @@ import {
 } from 'lucide-react'
 import { apiDelete, apiGet, apiPost, apiPut } from '../api/client'
 import { useDailyTargets } from '../api/targets'
-import type { CheckinResponse, FoodLogRow, Meal, MfpStatus, StreakInfo } from '../api/types'
+import type { CheckinResponse, FoodLogRow, Meal, MfpStatus } from '../api/types'
 import BottomSheet from '../components/BottomSheet'
 import CalorieDonut from '../components/CalorieDonut'
 import ProgressBar from '../components/ProgressBar'
 import SkeletonLoader from '../components/SkeletonLoader'
-import StreakWeekRow from '../components/StreakWeekRow'
 import MealCard from '../components/MealCard'
 import Stepper from '../components/Stepper'
 
@@ -259,7 +258,7 @@ function CheckinSheet({
             minHeight: 52,
             borderRadius: 14,
             background: 'var(--accent)',
-            color: 'white',
+            color: 'var(--accent-ink)',
             border: 'none',
             fontWeight: 700,
             fontSize: '1rem',
@@ -367,7 +366,7 @@ function QuickAddSheet({
             minHeight: 52,
             borderRadius: 14,
             background: 'var(--accent)',
-            color: 'white',
+            color: 'var(--accent-ink)',
             border: 'none',
             fontWeight: 700,
             fontSize: '1rem',
@@ -449,7 +448,7 @@ function WeightLogSheet({
             minHeight: 52,
             borderRadius: 14,
             background: 'var(--accent)',
-            color: 'white',
+            color: 'var(--accent-ink)',
             border: 'none',
             fontWeight: 700,
             fontSize: '1rem',
@@ -515,7 +514,7 @@ function NoteSheet({
             minHeight: 52,
             borderRadius: 14,
             background: 'var(--accent)',
-            color: 'white',
+            color: 'var(--accent-ink)',
             border: 'none',
             fontWeight: 700,
             fontSize: '1rem',
@@ -568,10 +567,6 @@ export default function LogPage() {
   const { data: checkinResp, isLoading: loadingCheckin } = useQuery<CheckinResponse>({
     queryKey: ['checkin', checkinCardDate],
     queryFn: () => apiGet(`/api/checkin?date=${checkinCardDate}`),
-  })
-  const { data: streak, isLoading: loadingStreak } = useQuery<StreakInfo>({
-    queryKey: ['streak'],
-    queryFn: () => apiGet('/api/checkin/streak'),
   })
   const { data: targets } = useDailyTargets(date)
   const { data: mfpStatus } = useQuery<MfpStatus>({
@@ -653,9 +648,6 @@ export default function LogPage() {
         </button>
       </div>
 
-      {/* Streak */}
-      {loadingStreak ? <SkeletonLoader height="40px" /> : streak && <StreakWeekRow streak={streak} />}
-
       {/* Check-in card */}
       {loadingCheckin ? (
         <div className="card" style={{ marginTop: 12 }}><SkeletonLoader height="60px" /></div>
@@ -703,7 +695,7 @@ export default function LogPage() {
             </div>
             <button
               onClick={() => openCheckin(checkinCardDate)}
-              style={{ width: '100%', minHeight: 48, borderRadius: 12, background: 'var(--accent)', color: 'white', border: 'none', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}
+              style={{ width: '100%', minHeight: 48, borderRadius: 12, background: 'var(--accent)', color: 'var(--accent-ink)', border: 'none', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}
             >
               {isDateToday ? 'Check in for yesterday' : 'Check in'}
             </button>
