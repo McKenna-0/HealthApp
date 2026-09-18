@@ -199,23 +199,41 @@ function TodayLoop({ streak, weightLogged }: { streak: StreakInfo; weightLogged:
           {streak.current_streak}
         </span>
         <span className="text-caption">day streak · best {streak.longest_streak}</span>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
+        {/* The weekday initial is rendered, not left to a title tooltip: iOS
+            Safari has no hover, so on the phone a tooltip is unreachable and
+            the dots become seven anonymous circles. */}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'flex-end' }}>
           {streak.week.map((d, i) => (
             <span
               key={d.date}
-              title={`${d.weekday}${d.complete ? ' · complete' : ''}`}
-              style={{
-                width: 17,
-                height: 17,
-                borderRadius: '50%',
-                boxSizing: 'border-box',
-                background: d.complete ? 'var(--green)' : 'transparent',
-                border: d.complete
-                  ? 'none'
-                  : `1.5px solid ${d.food_logged || d.checkin_done ? 'var(--amber)' : 'var(--track)'}`,
-                boxShadow: i === streak.week.length - 1 ? '0 0 0 2px rgba(34,211,238,0.5)' : undefined,
-              }}
-            />
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  fontSize: '0.5625rem',
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  color: i === streak.week.length - 1 ? 'var(--accent)' : 'var(--dim)',
+                }}
+              >
+                {d.weekday[0]}
+              </span>
+              <span
+                aria-label={`${d.weekday}${d.complete ? ' · complete' : ''}`}
+                style={{
+                  width: 17,
+                  height: 17,
+                  borderRadius: '50%',
+                  boxSizing: 'border-box',
+                  background: d.complete ? 'var(--green)' : 'transparent',
+                  border: d.complete
+                    ? 'none'
+                    : `1.5px solid ${d.food_logged || d.checkin_done ? 'var(--amber)' : 'var(--track)'}`,
+                  boxShadow: i === streak.week.length - 1 ? '0 0 0 2px rgba(34,211,238,0.5)' : undefined,
+                }}
+              />
+            </span>
           ))}
         </span>
       </div>
