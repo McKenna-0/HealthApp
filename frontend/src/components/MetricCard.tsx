@@ -26,6 +26,7 @@ export default function MetricCard({
   deltaColor,
   deltaText,
   spark,
+  sparkColor,
   onClick,
 }: {
   icon?: ReactNode
@@ -40,6 +41,13 @@ export default function MetricCard({
   deltaText?: string
   /** Recent history, oldest first. Nulls are dropped before plotting. */
   spark?: (number | null | undefined)[]
+  /**
+   * Stroke for the sparkline. Only pass a colour that describes the same
+   * window the line draws - the delta colour does not, since it compares a
+   * single day with a 7-day mean and would paint fourteen days of history by
+   * how one of them landed.
+   */
+  sparkColor?: string
   onClick?: () => void
 }) {
   const resolvedDeltaColor = delta
@@ -81,7 +89,7 @@ export default function MetricCard({
         <svg width="100%" height="22" viewBox="0 0 140 22" preserveAspectRatio="none" fill="none" aria-hidden="true">
           <polyline
             points={points}
-            stroke={resolvedDeltaColor ?? 'var(--accent)'}
+            stroke={sparkColor ?? 'var(--accent)'}
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"

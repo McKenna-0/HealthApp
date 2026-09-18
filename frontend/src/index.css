@@ -308,6 +308,9 @@ textarea:focus {
   outline-offset: -1px;
 }
 
+/* The fill and the ink are a pair. Any button that overrides `background`
+   must also set `color`, or it inherits dark ink onto its own dark fill and
+   the glyph disappears. */
 button {
   cursor: pointer;
   background: var(--accent);

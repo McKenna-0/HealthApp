@@ -402,6 +402,10 @@ export default function Dashboard() {
                   deltaColor={cur?.status ? statusColor(cur.status) : undefined}
                   deltaText={cur ? formatRate(cur.rate_kg_per_week) : undefined}
                   spark={spark}
+                  // Weight is the one tile whose delta colour describes the
+                  // same window the line draws: a rate over the trend model,
+                  // not one day against a mean.
+                  sparkColor={cur?.status ? statusColor(cur.status) : undefined}
                   onClick={() => setDrillDown(key)}
                 />
               )

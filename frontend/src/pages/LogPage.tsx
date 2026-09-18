@@ -634,7 +634,7 @@ export default function LogPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16 }}>
         <button
           onClick={() => setDate(shiftDate(date, -1))}
-          style={{ minWidth: 44, minHeight: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ minWidth: 44, minHeight: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
         >
           <ChevronLeft size={20} />
         </button>
@@ -642,7 +642,7 @@ export default function LogPage() {
         <button
           onClick={() => !isDateToday && setDate(shiftDate(date, 1))}
           disabled={isDateToday}
-          style={{ minWidth: 44, minHeight: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isDateToday ? 'default' : 'pointer', opacity: isDateToday ? 0.4 : 1 }}
+          style={{ minWidth: 44, minHeight: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isDateToday ? 'default' : 'pointer', opacity: isDateToday ? 0.4 : 1 }}
         >
           <ChevronRight size={20} />
         </button>
