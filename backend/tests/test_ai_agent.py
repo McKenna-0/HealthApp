@@ -27,6 +27,9 @@ def db():
 
 
 PROVIDER = Provider(base_url="https://example.test/v1", api_key="k", model="m")
+# The real deployment routes through OpenRouter, which is the only host sent the
+# reasoning and privacy blocks.
+OPENROUTER = Provider(base_url="https://openrouter.ai/api/v1", api_key="k", model="m")
 
 
 # ---- fake stream construction ----------------------------------------------------
@@ -52,15 +55,30 @@ def _tool_chunks(name: str, arguments: str, call_id="call_1"):
     yield {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}
 
 
+def _reasoning_chunks(thinking: str, content: str = "", finish="stop", key="reasoning"):
+    """A reasoning model streams its chain of thought on a separate channel and
+    only then starts on the answer. With `content=""` and finish="length" this is
+    the shape of the bug in issue #22: the thinking consumed the whole completion
+    budget, so the visible reply is empty."""
+    for ch in thinking:
+        yield {"choices": [{"delta": {key: ch}}]}
+    for ch in content:
+        yield {"choices": [{"delta": {"content": ch}}]}
+    yield {"choices": [{"delta": {}, "finish_reason": finish}]}
+
+
 def _scripted(monkeypatch, *scripts):
     """Each script is consumed by one successive call to chat_stream."""
-    calls = {"n": 0, "sent": [], "tool_choice": []}
+    calls = {"n": 0, "sent": [], "tool_choice": [], "tools": [], "max_tokens": [], "extra": []}
 
     def fake_stream(messages, provider, tools=None, **kw):
         i = calls["n"]
         calls["n"] += 1
         calls["sent"].append(list(messages))
         calls["tool_choice"].append(kw.get("tool_choice"))
+        calls["tools"].append(tools)
+        calls["max_tokens"].append(kw.get("max_tokens"))
+        calls["extra"].append(kw.get("extra_body"))
         if i >= len(scripts):
             raise AssertionError(f"chat_stream called {i + 1}x, only {len(scripts)} scripted")
         return iter(scripts[i])
@@ -217,21 +235,40 @@ def test_last_iteration_takes_the_tools_away_and_gets_a_real_answer(db, monkeypa
     messages = ai_agent.system_messages(db) + [{"role": "user", "content": "steps?"}]
     events = list(ai_agent.run_agent_turn(db, messages, PROVIDER, max_iterations=3))
 
-    assert calls["tool_choice"] == ["auto", "auto", "none"]
+    assert calls["tools"] == [ai_tools.TOOL_SCHEMAS, ai_tools.TOOL_SCHEMAS, None]
     done = _by_type(events, "message_done")
     assert done[0].data["content"] == "You averaged 11,230 steps."
     assert "warning" not in done[0].data
 
 
-def test_max_iterations_stops_with_a_usable_message(db, monkeypatch):
-    scripts = [list(_tool_chunks("get_data_inventory", "{}", call_id=f"c{i}")) for i in range(3)]
+def test_a_model_that_never_converges_still_answers_from_what_it_has(db, monkeypatch):
+    """Three tool rounds and still asking. The budget is gone, but the fetched
+    data is not - so the last word goes on an answer, not an apology."""
+    scripts = [
+        *[list(_tool_chunks("get_data_inventory", "{}", call_id=f"c{i}")) for i in range(3)],
+        list(_text_chunks("From what I fetched: 7h 10m average.")),
+    ]
     events, messages = _run(db, monkeypatch, *scripts, max_iterations=3)
 
     done = _by_type(events, "message_done")
     assert len(done) == 1
-    assert done[0].data["warning"] == "max_iterations"
-    # the user gets an explanation, not silence
-    assert "narrowing the question" in messages[-1]["content"]
+    assert done[0].data["content"] == "From what I fetched: 7h 10m average."
+    assert messages[-1]["content"] == "From what I fetched: 7h 10m average."
+
+
+def test_max_iterations_with_nothing_to_say_explains_itself(db, monkeypatch):
+    """Budget spent and the forced answer came back blank too. The user gets an
+    explanation, not silence."""
+    scripts = [
+        *[list(_tool_chunks("get_data_inventory", "{}", call_id=f"c{i}")) for i in range(3)],
+        list(_text_chunks("", finish="length")),
+    ]
+    events, messages = _run(db, monkeypatch, *scripts, max_iterations=3)
+
+    done = _by_type(events, "message_done")
+    assert len(done) == 1
+    assert done[0].data["warning"] == "no_answer"
+    assert "narrow" in messages[-1]["content"]
 
 
 def test_tool_calls_honoured_even_when_finish_reason_says_stop(db, monkeypatch):
@@ -251,6 +288,179 @@ def test_empty_choices_frames_are_ignored(db, monkeypatch):
     script = [{"choices": []}, {}, *list(_text_chunks("fine"))]
     events, _ = _run(db, monkeypatch, script)
     assert _by_type(events, "message_done")[0].data["content"] == "fine"
+
+
+# ---- reasoning models and empty answers (issue #22) ------------------------------
+
+
+def test_reasoning_is_streamed_rather_than_discarded(db, monkeypatch):
+    """The thinking channel is the only sign of life during a long pass. It used
+    to be dropped on the floor, so the UI sat on a finished tool trace."""
+    events, _ = _run(
+        db, monkeypatch, list(_reasoning_chunks("weighing the options", "Sleep looks fine."))
+    )
+
+    assert "".join(e.data["text"] for e in _by_type(events, "reasoning")) == "weighing the options"
+    assert _by_type(events, "message_done")[0].data["content"] == "Sleep looks fine."
+
+
+@pytest.mark.parametrize("key", ["reasoning", "reasoning_content"])
+def test_reasoning_read_under_either_field_name(db, monkeypatch, key):
+    """OpenRouter streams `reasoning`; DeepSeek's own API, vLLM and SGLang use
+    `reasoning_content`."""
+    events, _ = _run(db, monkeypatch, list(_reasoning_chunks("hmm", "ok", key=key)))
+    assert "".join(e.data["text"] for e in _by_type(events, "reasoning")) == "hmm"
+
+
+def test_reasoning_details_are_read(db, monkeypatch):
+    script = [
+        {"choices": [{"delta": {"reasoning_details": [
+            {"type": "reasoning.text", "text": "step one"},
+            {"type": "reasoning.text", "text": " step two"},
+        ]}}]},
+        *list(_text_chunks("ok")),
+    ]
+    events, _ = _run(db, monkeypatch, script)
+    assert "".join(e.data["text"] for e in _by_type(events, "reasoning")) == "step one step two"
+
+
+def test_thinking_eating_the_budget_still_produces_an_answer(db, monkeypatch):
+    """Issue #22. A reasoning model draws thinking and answer from one
+    `max_tokens` budget; when thinking exhausts it the stream ends
+    `finish_reason: "length"` with no visible content. The turn used to be
+    reported as a success, persisting an empty assistant message, and the user
+    watched the tool trace fill in and then got a blank bubble."""
+    scripts = [
+        list(_tool_chunks("get_data_inventory", "{}")),
+        list(_reasoning_chunks("a very long think", "", finish="length")),
+        list(_text_chunks("You averaged 7h 20m of sleep.")),
+    ]
+    calls = _scripted(monkeypatch, *scripts)
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "sleep?"}]
+    events = list(ai_agent.run_agent_turn(db, messages, OPENROUTER, max_iterations=6))
+
+    done = _by_type(events, "message_done")
+    assert len(done) == 1
+    assert done[0].data["content"] == "You averaged 7h 20m of sleep."
+    # nothing blank is ever persisted as the answer
+    assert messages[-1] == {"role": "assistant", "content": "You averaged 7h 20m of sleep."}
+
+    # the recovery pass withholds the tools and caps the thinking, so the budget
+    # goes on the reply this time
+    assert calls["tools"][-1] is None
+    assert calls["extra"][-1]["reasoning"] == {"effort": "low"}
+
+
+def test_a_single_stray_space_does_not_count_as_an_answer(db, monkeypatch):
+    """What the real session actually recorded: content of exactly one space,
+    the one visible token the model got out before the budget ran out."""
+    scripts = [
+        list(_reasoning_chunks("thinking hard", " ", finish="length")),
+        list(_text_chunks("Here is the answer.")),
+    ]
+    events, messages = _run(db, monkeypatch, *scripts)
+
+    assert _by_type(events, "message_done")[0].data["content"] == "Here is the answer."
+    assert messages[-1]["content"] == "Here is the answer."
+
+
+def test_blank_twice_tells_the_user_instead_of_showing_nothing(db, monkeypatch):
+    scripts = [
+        list(_reasoning_chunks("think", "", finish="length")),
+        list(_reasoning_chunks("think again", "", finish="length")),
+    ]
+    events, messages = _run(db, monkeypatch, *scripts)
+
+    done = _by_type(events, "message_done")
+    assert len(done) == 1
+    assert done[0].data["warning"] == "no_answer"
+    assert done[0].data["content"].strip()  # never an empty bubble
+    assert messages[-1]["content"].strip()
+
+
+def test_final_pass_withholds_the_tools_outright(db, monkeypatch):
+    """tool_choice="none" is advisory and a provider was observed ignoring it,
+    asking for more tools with the budget already spent. Omitting the tools from
+    the request is the only version the provider cannot talk its way out of."""
+    scripts = [
+        list(_tool_chunks("get_data_inventory", "{}", call_id="c0")),
+        list(_text_chunks("Two sources checked.")),
+    ]
+    calls = _scripted(monkeypatch, *scripts)
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "q"}]
+    list(ai_agent.run_agent_turn(db, messages, PROVIDER, max_iterations=2))
+
+    assert calls["tools"][0] is ai_tools.TOOL_SCHEMAS
+    assert calls["tools"][1] is None
+
+
+def test_tool_calls_on_the_final_pass_are_not_run(db, monkeypatch):
+    """A preamble plus yet another tool call, on the pass that was supposed to
+    answer. Running those tools would spend the user's time on results nothing
+    will ever read - and the preamble is not an answer either."""
+    preamble = [
+        {"choices": [{"delta": {"content": "Let me pull your workout history."}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "late", "function": {"name": "get_data_inventory", "arguments": "{}"}}
+        ]}}]},
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+    ]
+    scripts = [
+        list(_tool_chunks("get_data_inventory", "{}", call_id="c0")),
+        preamble,
+        list(_text_chunks("You trained legs twice this week.")),
+    ]
+    events, messages = _run(db, monkeypatch, *scripts, max_iterations=2)
+
+    # one tool round, from the first iteration only
+    assert [e.data["call_id"] for e in _by_type(events, "tool_call")] == ["c0"]
+    assert _by_type(events, "message_done")[0].data["content"] == (
+        "You trained legs twice this week."
+    )
+    # the unanswerable tool_calls message is never persisted: it would leave the
+    # stored transcript needing a synthetic tool reply on the next question
+    assert not any(m.get("tool_calls") for m in messages[-2:])
+
+
+def test_the_answer_gets_a_bigger_budget_than_a_tool_pass(db, monkeypatch):
+    calls = _scripted(monkeypatch, list(_text_chunks("fine")))
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "q"}]
+    list(ai_agent.run_agent_turn(db, messages, PROVIDER))
+
+    assert calls["max_tokens"][0] == ai_agent.MAX_RESPONSE_TOKENS
+    assert ai_agent.MAX_RESPONSE_TOKENS > 4096  # the cap the bug was found under
+
+
+def test_recovery_pass_still_carries_the_privacy_routing(db, monkeypatch):
+    """The forced-answer pass sends the whole conversation - health data included
+    - a second time. It must not lose the no-data-collection routing on the way."""
+    calls = _scripted(
+        monkeypatch,
+        list(_reasoning_chunks("think", "", finish="length")),
+        list(_text_chunks("answered")),
+    )
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "q"}]
+    list(ai_agent.run_agent_turn(db, messages, OPENROUTER))
+
+    assert calls["n"] == 2  # the recovery pass happened
+    for sent in calls["extra"]:
+        assert sent["provider"] == {"data_collection": "deny", "require_parameters": True}
+
+
+def test_reasoning_cap_is_not_sent_to_a_non_openrouter_host(db, monkeypatch):
+    """Other OpenAI-compatible servers reject unknown top-level fields, so the
+    reasoning block is gated on the host - same rule as the privacy block."""
+    local = Provider(base_url="http://localhost:8080/v1", api_key="k", model="m")
+    calls = _scripted(
+        monkeypatch,
+        list(_reasoning_chunks("think", "", finish="length")),
+        list(_text_chunks("answered")),
+    )
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "q"}]
+    events = list(ai_agent.run_agent_turn(db, messages, local))
+
+    assert _by_type(events, "message_done")[0].data["content"] == "answered"
+    assert "reasoning" not in (calls["extra"][-1] or {})
 
 
 # ---- persistence hook ------------------------------------------------------------

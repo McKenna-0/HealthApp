@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 6
 MAX_CONTEXT_TOKENS = 12000
 
+# Reasoning models spend this budget on thinking *and* on the reply. At 4096 a
+# long think left nothing for the answer, and the turn ended with a blank bubble
+# (issue #22). A cap only bills what is actually generated, so it costs nothing
+# to leave real room here.
+MAX_RESPONSE_TOKENS = 16384
+
 AGENT_SYSTEM_PROMPT = """You are an evidence-based health and fitness analyst with \
 tool access to one person's self-tracked data: a Garmin wearable (sleep, HRV, resting \
 heart rate, steps, stress, body battery), a food log, logged strength training, manually \
@@ -93,6 +99,15 @@ exchanges like "what was my weight on Tuesday"."""
 class AgentEvent:
     type: str
     data: dict = field(default_factory=dict)
+
+
+FORCE_ANSWER_PROMPT = """Answer now, in plain text, using only the tool results \
+already in this conversation. Do not ask for any more data. Lead with the conclusion. \
+If what you have does not settle the question, say what it does and does not show."""
+
+NO_ANSWER_NOTE = """I looked up the data but ran out of room to write the answer - the \
+tool results above are what I found. Try asking again, or narrow it to one metric or a \
+shorter date range."""
 
 
 def _estimate_tokens(text: str) -> int:
@@ -209,6 +224,121 @@ def _accumulate_tool_calls(buffer: dict[int, dict], deltas: list[dict]) -> None:
             slot["arguments"] += fn["arguments"]
 
 
+def _reasoning_text(delta: dict) -> str:
+    """Pull the chain of thought out of a delta, whichever name it arrived under.
+
+    The field is not standardised: OpenRouter streams `reasoning` plus a
+    structured `reasoning_details`, while DeepSeek's own API, vLLM and SGLang use
+    `reasoning_content`. Reading only `content` - as this loop originally did -
+    makes a model that thinks for thirty seconds look like a hung request."""
+    for key in ("reasoning", "reasoning_content"):
+        value = delta.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    details = delta.get("reasoning_details")
+    if not isinstance(details, list):
+        return ""
+    return "".join(
+        d["text"] for d in details if isinstance(d, dict) and isinstance(d.get("text"), str)
+    )
+
+
+@dataclass
+class _Pass:
+    """What one streaming completion produced."""
+
+    content: str
+    reasoning: str
+    calls: list[dict]
+    finish_reason: str | None
+
+    @property
+    def answer(self) -> str:
+        """The reply, or "" if the model never got as far as saying anything.
+
+        Stripped deliberately: when thinking exhausts the budget the model often
+        emits a single stray space before being cut off, and a space rendered as
+        an empty bubble is exactly the bug in issue #22."""
+        return self.content.strip()
+
+
+def _stream_pass(
+    messages: list[dict],
+    provider: Provider,
+    tools: list[dict] | None,
+    extra_body: dict,
+) -> Iterator[AgentEvent]:
+    """One completion, streamed out as events and returned reassembled."""
+    content = ""
+    reasoning = ""
+    tool_buffer: dict[int, dict] = {}
+    finish_reason = None
+
+    for chunk in ai_client.chat_stream(
+        messages,
+        provider=provider,
+        tools=tools,
+        tool_choice="auto" if tools else "none",
+        max_tokens=MAX_RESPONSE_TOKENS,
+        extra_body=extra_body,
+    ):
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = choice.get("delta") or {}
+
+        if delta.get("content"):
+            content += delta["content"]
+            yield AgentEvent("token", {"text": delta["content"]})
+
+        thought = _reasoning_text(delta)
+        if thought:
+            reasoning += thought
+            yield AgentEvent("reasoning", {"text": thought})
+
+        if delta.get("tool_calls"):
+            _accumulate_tool_calls(tool_buffer, delta["tool_calls"])
+
+        if choice.get("finish_reason"):
+            finish_reason = choice["finish_reason"]
+
+    return _Pass(
+        content=content,
+        reasoning=reasoning,
+        # Trust the buffer over finish_reason: some providers report "stop" even
+        # when they emitted tool calls.
+        calls=[c for c in tool_buffer.values() if c.get("name")],
+        finish_reason=finish_reason,
+    )
+
+
+def _forced_answer(
+    messages: list[dict],
+    provider: Provider,
+    extra_body: dict,
+) -> Iterator[AgentEvent]:
+    """One last pass whose only job is to write the answer. Returns "" if even
+    that produced nothing.
+
+    Tools are withheld and the thinking is capped, because this is called
+    precisely when the model has already spent a full budget without answering -
+    repeating the request unchanged would reproduce the same silence."""
+    history = trim_history(messages)
+    # Appended after trimming: trim_history floats system messages to the front,
+    # and this instruction has to be the last thing the model reads.
+    history.append({"role": "system", "content": FORCE_ANSWER_PROMPT})
+
+    result = yield from _stream_pass(
+        history,
+        provider,
+        tools=None,
+        extra_body={**extra_body, **ai_client.short_reasoning_extra_body(provider)},
+    )
+    return result.answer
+
+
 def run_agent_turn(
     db: Session,
     messages: list[dict],
@@ -231,108 +361,123 @@ def run_agent_turn(
     extra = ai_client.privacy_extra_body(provider)
 
     for iteration in range(max_iterations):
-        content = ""
-        tool_buffer: dict[int, dict] = {}
-        finish_reason = None
-
         # Spend the last iteration answering, not fetching. Observed a turn
         # where a tool kept returning off-topic papers, the model kept
         # re-searching, and the budget ran out with nothing said at all - the
-        # user got an apology instead of the data already in hand. Tools stay
-        # in the request so the cached prefix doesn't change; only the choice
-        # is taken away.
+        # user got an apology instead of the data already in hand.
+        #
+        # The tools are withheld outright rather than sent with
+        # tool_choice="none", which is advisory: a provider was observed
+        # ignoring it and asking for more tools anyway. That costs the cached
+        # prefix on one request per turn, which is a fair price for an answer.
         last = iteration == max_iterations - 1
 
         try:
-            for chunk in ai_client.chat_stream(
+            result = yield from _stream_pass(
                 trim_history(messages),
-                provider=provider,
-                tools=ai_tools.TOOL_SCHEMAS,
-                tool_choice="none" if last else "auto",
+                provider,
+                tools=None if last else ai_tools.TOOL_SCHEMAS,
                 extra_body=extra,
-            ):
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue
-                choice = choices[0]
-                delta = choice.get("delta") or {}
-
-                if delta.get("content"):
-                    content += delta["content"]
-                    yield AgentEvent("token", {"text": delta["content"]})
-
-                if delta.get("tool_calls"):
-                    _accumulate_tool_calls(tool_buffer, delta["tool_calls"])
-
-                if choice.get("finish_reason"):
-                    finish_reason = choice["finish_reason"]
+            )
         except Exception as exc:  # noqa: BLE001 - the stream is the only thing that can't recover
             logger.exception("Agent stream failed")
             yield AgentEvent("error", {"message": f"{type(exc).__name__}: {exc}"})
             return
 
-        # Trust the buffer over finish_reason: some providers report "stop" even
-        # when they emitted tool calls.
-        calls = [c for c in tool_buffer.values() if c.get("name")]
+        if result.calls and not last:
+            emit({
+                "role": "assistant",
+                "content": result.content or None,
+                "tool_calls": [
+                    {
+                        "id": c["id"] or f"call_{i}",
+                        "type": "function",
+                        "function": {"name": c["name"], "arguments": c["arguments"] or "{}"},
+                    }
+                    for i, c in enumerate(result.calls)
+                ],
+            })
+            yield from _run_calls(db, result.calls, emit, session_id)
+            continue
 
-        if not calls:
-            emit({"role": "assistant", "content": content})
-            yield AgentEvent("message_done", {"content": content, "finish_reason": finish_reason})
+        # Time to answer: either the model is finished, or this was the final
+        # pass. Anything it asked for there is dropped rather than run - the
+        # budget is gone, so nothing would ever read the results, and the
+        # dangling tool_calls message would leave the stored transcript needing
+        # a synthetic reply on the next question. Whatever text came with such a
+        # request is a preamble, not an answer, so it doesn't count either.
+        answer = "" if result.calls else result.answer
+
+        if not answer:
+            # Nothing said. Usually the thinking consumed the whole completion
+            # budget (issue #22): a reasoning model draws both from `max_tokens`,
+            # and when it runs out the stream ends `finish_reason: "length"`
+            # with no visible content. Ask once more, for the answer alone.
+            logger.info(
+                "Empty reply on iteration %s (finish_reason=%r, reasoning=%d chars); "
+                "forcing an answer",
+                iteration,
+                result.finish_reason,
+                len(result.reasoning),
+            )
+            try:
+                answer = yield from _forced_answer(messages, provider, extra)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Forced answer failed")
+                yield AgentEvent("error", {"message": f"{type(exc).__name__}: {exc}"})
+                return
+
+        if not answer:
+            # Twice now. Say so plainly - an empty bubble tells the user nothing,
+            # and the tool trace above it is still worth something.
+            emit({"role": "assistant", "content": NO_ANSWER_NOTE})
+            yield AgentEvent("message_done", {"content": NO_ANSWER_NOTE, "warning": "no_answer"})
             return
 
+        emit({"role": "assistant", "content": answer})
+        yield AgentEvent(
+            "message_done", {"content": answer, "finish_reason": result.finish_reason}
+        )
+        return
+
+
+def _run_calls(
+    db: Session,
+    calls: list[dict],
+    emit: Callable[[dict], None],
+    session_id: int | None,
+) -> Iterator[AgentEvent]:
+    for i, call in enumerate(calls):
+        call_id = call["id"] or f"call_{i}"
+        name = call["name"]
+        yield AgentEvent("tool_call", {"call_id": call_id, "name": name, "arguments": call["arguments"]})
+
+        result, ok, err = _run_tool(db, name, call["arguments"], session_id)
+
         emit({
-            "role": "assistant",
-            "content": content or None,
-            "tool_calls": [
-                {
-                    "id": c["id"] or f"call_{i}",
-                    "type": "function",
-                    "function": {"name": c["name"], "arguments": c["arguments"] or "{}"},
-                }
-                for i, c in enumerate(calls)
-            ],
+            "role": "tool",
+            "tool_call_id": call_id,
+            "name": name,
+            "content": json.dumps(result),
         })
-
-        for i, call in enumerate(calls):
-            call_id = call["id"] or f"call_{i}"
-            name = call["name"]
-            yield AgentEvent("tool_call", {"call_id": call_id, "name": name, "arguments": call["arguments"]})
-
-            result, ok, err = _run_tool(db, name, call["arguments"], session_id)
-
-            emit({
-                "role": "tool",
-                "tool_call_id": call_id,
+        yield AgentEvent(
+            "tool_result",
+            {
+                "call_id": call_id,
                 "name": name,
-                "content": json.dumps(result),
+                "ok": ok,
+                "summary": result.get("trace_summary") if ok else None,
+                "error": err,
+            },
+        )
+        if ok and result.get("pending_action_id"):
+            # Surfaced as its own event so the UI can put a Confirm/Discard
+            # card in front of the user without waiting for the reply.
+            yield AgentEvent("pending_action", {
+                "id": result["pending_action_id"],
+                "summary_text": result["summary_text"],
+                "status": "pending",
             })
-            yield AgentEvent(
-                "tool_result",
-                {
-                    "call_id": call_id,
-                    "name": name,
-                    "ok": ok,
-                    "summary": result.get("trace_summary") if ok else None,
-                    "error": err,
-                },
-            )
-            if ok and result.get("pending_action_id"):
-                # Surfaced as its own event so the UI can put a Confirm/Discard
-                # card in front of the user without waiting for the reply.
-                yield AgentEvent("pending_action", {
-                    "id": result["pending_action_id"],
-                    "summary_text": result["summary_text"],
-                    "status": "pending",
-                })
-
-    # Only reachable if the provider ignored tool_choice="none" on the final
-    # pass and asked for yet more tools.
-    note = (
-        "I wasn't able to finish working through that within my tool budget. "
-        "Try narrowing the question - a specific metric or a shorter date range."
-    )
-    emit({"role": "assistant", "content": note})
-    yield AgentEvent("message_done", {"content": note, "warning": "max_iterations"})
 
 
 def _run_tool(

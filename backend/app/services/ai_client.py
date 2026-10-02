@@ -85,6 +85,22 @@ def privacy_extra_body(provider: Provider) -> dict:
     return {}
 
 
+def short_reasoning_extra_body(provider: Provider) -> dict:
+    """Cap the chain of thought for a pass that only has to write up conclusions
+    it has already reached.
+
+    Reasoning tokens come out of the same `max_tokens` budget as the reply, so a
+    model that thinks for the whole budget returns `finish_reason: "length"` with
+    empty content - the user sees the tool trace finish and then a blank bubble.
+    Asking for low effort leaves room for the answer.
+
+    OpenRouter-specific, so gated on the host the same way `privacy_extra_body`
+    is: other OpenAI-compatible servers reject unknown top-level fields."""
+    if provider.is_openrouter:
+        return {"reasoning": {"effort": "low"}}
+    return {}
+
+
 def chat(messages: list[dict], temperature: float = 0.4, max_tokens: int = 3000) -> str:
     if not is_configured():
         raise AInot_configured("Set AI_API_KEY (and optionally AI_MODEL) in .env")

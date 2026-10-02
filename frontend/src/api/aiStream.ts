@@ -30,6 +30,13 @@ export interface PendingActionEvent {
 export interface StreamHandlers {
   onStart?: (data: { session_id: number; user_message_id: number }) => void
   onToken?: (text: string) => void
+  /**
+   * A reasoning model streams its chain of thought before it writes a word of
+   * the answer, which on a long question is the only sign the turn is alive.
+   * The text itself is not rendered - it runs to thousands of words and would
+   * bury the answer on a 390px screen - but it drives the live status line.
+   */
+  onReasoning?: (text: string) => void
   onToolCall?: (event: ToolCallEvent) => void
   onToolResult?: (event: ToolResultEvent) => void
   onPendingAction?: (event: PendingActionEvent) => void
@@ -101,6 +108,9 @@ function dispatch(frame: string, h: StreamHandlers): void {
       break
     case 'token':
       h.onToken?.(String(data.text ?? ''))
+      break
+    case 'reasoning':
+      h.onReasoning?.(String(data.text ?? ''))
       break
     case 'tool_call':
       h.onToolCall?.(data as unknown as ToolCallEvent)
