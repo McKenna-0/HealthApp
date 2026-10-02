@@ -19,9 +19,21 @@ interface LiveTurn {
   question: string
   steps: TraceStep[]
   answer: string
+  /** Set once the model streams any chain of thought, so the status line can say
+   * "Thinking…" rather than leaving a finished tool trace looking stalled. */
+  thinking: boolean
   pending: PendingAction[]
   error: string | null
   streaming: boolean
+}
+
+const NEW_TURN: Omit<LiveTurn, 'question'> = {
+  steps: [],
+  answer: '',
+  thinking: false,
+  pending: [],
+  error: null,
+  streaming: true,
 }
 
 /** A rendered bubble, with the tool work that produced it folded in above. */
@@ -100,7 +112,10 @@ function toBubbles(messages: ChatMessage[]): Bubble[] {
       for (const c of m.tool_calls ?? []) {
         if (c.id) namesById.set(c.id, c.name ?? 'tool')
       }
-      if (m.content) {
+      // Trimmed, not just truthy: a turn whose thinking ate the whole token
+      // budget is stored as a single space, and that used to render as an empty
+      // bubble - the tool trace, then nothing (issue #22).
+      if (m.content?.trim()) {
         out.push({ key: `m${m.id}`, role: 'assistant', content: m.content, trace })
         trace = []
       }
@@ -163,7 +178,7 @@ export default function AIChatPage() {
     if (!question || live?.streaming) return
 
     setInput('')
-    setLive({ question, steps: [], answer: '', pending: [], error: null, streaming: true })
+    setLive({ question, ...NEW_TURN })
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -174,6 +189,7 @@ export default function AIChatPage() {
         question,
         {
           onToken: (text) => setLive((l) => (l ? { ...l, answer: l.answer + text } : l)),
+          onReasoning: () => setLive((l) => (l && !l.thinking ? { ...l, thinking: true } : l)),
           onToolCall: (e) =>
             setLive((l) =>
               l
@@ -224,6 +240,12 @@ export default function AIChatPage() {
                   }
                 : l,
             ),
+          // The backend composes this one itself when the model never produced a
+          // reply, so it arrives whole rather than as tokens. Showing it here
+          // means the explanation lands immediately instead of waiting for the
+          // transcript refetch.
+          onMessageDone: (data) =>
+            setLive((l) => (l && !l.answer.trim() ? { ...l, answer: data.content } : l)),
           onError: (message) => setLive((l) => (l ? { ...l, error: message } : l)),
         },
         controller.signal,
@@ -242,9 +264,7 @@ export default function AIChatPage() {
       setInput(question) // don't make them retype it
       setLive({
         question,
-        steps: [],
-        answer: '',
-        pending: [],
+        ...NEW_TURN,
         error: String(err).replace(/^Error: /, '').replace(/^\d+: /, '').slice(0, 300),
         streaming: false,
       })
@@ -329,16 +349,20 @@ export default function AIChatPage() {
           <>
             <div className="chat-msg user">{live.question}</div>
             {live.steps.length > 0 && <ToolTrace steps={live.steps} open />}
-            {live.answer && (
+            {live.answer.trim() && (
               <div className="chat-msg assistant">
                 <div className="report-md">
                   <Markdown>{live.answer}</Markdown>
                 </div>
               </div>
             )}
-            {live.streaming && !live.answer && live.steps.length === 0 && (
+            {/* Shown for as long as there is no answer yet, tool trace or not.
+                It used to hide itself the moment the first tool ran, so a model
+                that then thought for half a minute left a completed trace and
+                no indication anything was still happening. */}
+            {live.streaming && !live.answer.trim() && (
               <div className="chat-msg assistant">
-                <span className="muted">Thinking…</span>
+                <span className="muted">{live.thinking ? 'Reasoning…' : 'Thinking…'}</span>
               </div>
             )}
             {live.error && <p className="error-text">{live.error}</p>}
