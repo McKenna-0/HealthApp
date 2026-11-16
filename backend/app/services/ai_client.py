@@ -75,7 +75,16 @@ def privacy_extra_body(provider: Provider) -> dict:
     host still sees every prompt - so ask OpenRouter to skip endpoints that
     retain or train on data. Other OpenAI-compatible servers may reject unknown
     top-level fields, so this is gated on the host rather than sent blindly."""
-    if provider.is_openrouter and settings.ai_require_zdr:
+    return _privacy_block(provider.base_url)
+
+
+def default_privacy_extra_body() -> dict:
+    """The same controls for the report model's provider (`AI_BASE_URL`)."""
+    return _privacy_block(settings.ai_base_url)
+
+
+def _privacy_block(base_url: str) -> dict:
+    if "openrouter.ai" in (base_url or "") and settings.ai_require_zdr:
         return {
             "provider": {
                 "data_collection": "deny",
@@ -99,6 +108,11 @@ def chat(messages: list[dict], temperature: float = 0.4, max_tokens: int = 3000)
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            # Reports carry a full health summary and titles carry the user's
+            # question, so this path needs the routing controls as much as the
+            # agent does. It used to go out without them. If no endpoint for
+            # the model honours them the call fails, which is the point.
+            **default_privacy_extra_body(),
         },
         timeout=120,
     )

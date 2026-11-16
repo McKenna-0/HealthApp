@@ -329,6 +329,11 @@ def get_workouts(
             "avg_hr": a.avg_hr,
             "calories": a.calories,
             "training_load": a.training_load or cardio._fallback_load(a),
+            # Garmin's own 0-5 scores; what its low/high aerobic and anaerobic
+            # load-focus buckets are built from.
+            "aerobic_te": a.aerobic_te,
+            "anaerobic_te": a.anaerobic_te,
+            "training_effect_label": a.training_effect_label,
         }
         for a in acts
     ]
@@ -379,10 +384,47 @@ def get_workout_detail(db: Session, activity_id: int) -> dict:
     if not act:
         raise ToolError(f"no workout with id {activity_id}")
     summary = sessions.session_summary(db, act)
+    summary.update(
+        type=act.type,
+        distance_km=act.distance_km,
+        aerobic_te=act.aerobic_te,
+        anaerobic_te=act.anaerobic_te,
+        training_effect_label=act.training_effect_label,
+        training_load=act.training_load,
+    )
+
+    # Read from the cache only. Zones are fetched from Garmin the first time a
+    # workout is opened in the app; a tool call must not reach out on its own.
+    zone_rows = db.scalars(
+        select(models.ActivityHrZone)
+        .where(models.ActivityHrZone.activity_id == activity_id)
+        .order_by(models.ActivityHrZone.zone_number)
+    ).all()
+    notices: list[str] = []
+    hr_zones = None
+    if zone_rows:
+        hr_zones = [
+            {
+                "zone": z.zone_number,
+                "minutes": round((z.secs_in_zone or 0) / 60, 1),
+                "from_bpm": z.zone_low_boundary,
+            }
+            for z in zone_rows
+        ]
+    elif act.avg_hr:
+        notices.append(
+            "No heart-rate zone breakdown is stored for this workout (it is only "
+            "cached once the workout has been opened in the app). This is missing "
+            "data, not zero time in zone - do not retry; use avg_hr/max_hr and the "
+            "training effect scores instead."
+        )
+
     return _envelope(
         {"activity_id": activity_id},
         f"Opened workout {activity_id} ({act.name or act.type} on {act.date})",
+        notices=notices,
         detail=summary,
+        hr_zones=hr_zones,
     )
 
 
@@ -403,6 +445,9 @@ def _match_exercise(db: Session, name: str) -> models.Exercise | list[str]:
     if not partial:
         return []
     return [e.name for e in partial]
+
+
+MAX_OVERVIEW_EXERCISES = 40
 
 
 def get_strength_progress(
@@ -451,13 +496,27 @@ def get_strength_progress(
         )
 
     overview = strength.exercise_overview(db)
+    total_exercises = len(overview)
+    notices = []
+    if total_exercises > MAX_OVERVIEW_EXERCISES:
+        # Every exercise ever logged was ~4k tokens on its own, most of it lifts
+        # not touched in years. Any of them is still reachable by name.
+        overview = sorted(overview, key=lambda e: e.get("last_date") or "", reverse=True)
+        overview = overview[:MAX_OVERVIEW_EXERCISES]
+        notices.append(
+            f"{total_exercises} exercises have been logged; listing the "
+            f"{MAX_OVERVIEW_EXERCISES} trained most recently. Pass exercise_name "
+            "to look up any other."
+        )
     volume = strength.weekly_volume(db, weeks=weeks)
     muscle = None
     if start and end:
         muscle = muscles.muscle_set_counts(db, start, end)
     return _envelope(
         {"weeks": weeks, "start": start, "end": end},
-        f"Checked strength overview: {len(overview)} exercises, {len(volume)} weeks of volume",
+        f"Checked strength overview: {total_exercises} exercises, {len(volume)} weeks of volume",
+        notices=notices,
+        total_exercises=total_exercises,
         exercises=overview,
         weekly_volume=volume,
         muscle_set_counts=muscle,
@@ -1005,7 +1064,8 @@ TOOL_SCHEMAS = [
     ),
     _schema(
         "get_workouts",
-        "Workouts in a date range with weekly totals and training load / acute:chronic ratio.",
+        "Workouts in a date range with weekly totals, training load / acute:chronic "
+        "ratio, and Garmin's aerobic/anaerobic training effect (0-5) per workout.",
         {
             "start": _DATE,
             "end": _DATE,
@@ -1016,8 +1076,9 @@ TOOL_SCHEMAS = [
     ),
     _schema(
         "get_workout_detail",
-        "Full detail for one workout: sets, tonnage, PRs hit, muscles worked. Use "
-        "an id returned by get_workouts.",
+        "Full detail for one workout: sets, tonnage, PRs hit, muscles worked, "
+        "training effect, and minutes per heart-rate zone when stored. Use an id "
+        "returned by get_workouts.",
         {"activity_id": {"type": "integer"}}, ["activity_id"],
     ),
     _schema(

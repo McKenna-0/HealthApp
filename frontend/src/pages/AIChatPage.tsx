@@ -86,6 +86,10 @@ function toolError(content: string | null): string {
  * their own - they're collected and attached to the assistant reply they led to,
  * which is also why an interrupted turn (tool results, no reply) still renders
  * its trace instead of vanishing.
+ *
+ * Text that arrives alongside tool calls ("Let me check your runs...") is
+ * narration, not an answer. It is skipped, so a turn reads as one trace and one
+ * reply rather than a ladder of bubbles announcing each lookup.
  */
 function toBubbles(messages: ChatMessage[]): Bubble[] {
   const out: Bubble[] = []
@@ -100,7 +104,7 @@ function toBubbles(messages: ChatMessage[]): Bubble[] {
       for (const c of m.tool_calls ?? []) {
         if (c.id) namesById.set(c.id, c.name ?? 'tool')
       }
-      if (m.content) {
+      if (m.content && !m.tool_calls?.length) {
         out.push({ key: `m${m.id}`, role: 'assistant', content: m.content, trace })
         trace = []
       }
@@ -179,6 +183,8 @@ export default function AIChatPage() {
               l
                 ? {
                     ...l,
+                    // whatever was streamed before a tool call was narration
+                    answer: '',
                     steps: [
                       ...l.steps,
                       { call_id: e.call_id, name: e.name, summary: null, error: null, done: false },
@@ -336,9 +342,14 @@ export default function AIChatPage() {
                 </div>
               </div>
             )}
-            {live.streaming && !live.answer && live.steps.length === 0 && (
-              <div className="chat-msg assistant">
-                <span className="muted">Thinking…</span>
+            {/* Also between tool rounds: once every step has finished the model
+                is reading the results, which can take as long as the first
+                wait and used to show nothing at all. */}
+            {live.streaming && !live.answer && live.steps.every((s) => s.done) && (
+              <div className="chat-msg assistant" role="status">
+                <span className="muted">
+                  {live.steps.length > 0 ? 'Working through the results…' : 'Thinking…'}
+                </span>
               </div>
             )}
             {live.error && <p className="error-text">{live.error}</p>}

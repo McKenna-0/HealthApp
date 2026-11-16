@@ -4,6 +4,7 @@ import logging
 from dataclasses import asdict
 from datetime import date, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -74,6 +75,8 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
         from . import sessions
 
         sessions.auto_link_new_activities(db)
+        db.commit()
+        cache_missing_hr_zones(db, source)
 
         weights = source.fetch_weight(start, end)
         for w in weights:
@@ -104,6 +107,58 @@ def sync_range(db: Session, source: DataSource, start: date, end: date) -> model
     db.add(log)
     db.commit()
     return log
+
+
+# Types with no meaningful zone distribution to speak of; strength sessions are
+# also by far the most numerous, and each lookup is one Garmin request.
+_NO_ZONE_TYPES = {"strength_training", "breathwork", "yoga"}
+ZONE_BACKFILL_DAYS = 120
+ZONE_BACKFILL_PER_SYNC = 8
+
+
+def cache_missing_hr_zones(db: Session, source: DataSource) -> int:
+    """Store time-in-zone for recent cardio that doesn't have it yet.
+
+    Zones used to be fetched only when a workout was opened in the app, so the
+    coach could see them for almost nothing. Capped per sync so a backlog is
+    worked off over a few runs instead of hammering Garmin in one, and a
+    failure here never fails the sync - zones are an extra."""
+    cutoff = (today_local() - timedelta(days=ZONE_BACKFILL_DAYS)).isoformat()
+    have = select(models.ActivityHrZone.activity_id)
+    candidates = db.scalars(
+        select(models.Activity)
+        .where(
+            models.Activity.source == source.name,
+            models.Activity.date >= cutoff,
+            models.Activity.avg_hr.is_not(None),
+            models.Activity.type.not_in(_NO_ZONE_TYPES),
+            models.Activity.id.not_in(have),
+        )
+        .order_by(models.Activity.date.desc())
+        .limit(ZONE_BACKFILL_PER_SYNC)
+    ).all()
+
+    cached = 0
+    for act in candidates:
+        try:
+            zones = source.fetch_activity_hr_zones(act.external_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("HR zone fetch failed for activity %s", act.id, exc_info=True)
+            break  # most likely rate limiting or auth; try again next sync
+        if not zones:
+            continue
+        db.add_all(
+            models.ActivityHrZone(
+                activity_id=act.id,
+                zone_number=z.zone_number,
+                secs_in_zone=z.secs_in_zone,
+                zone_low_boundary=z.zone_low_boundary,
+            )
+            for z in zones
+        )
+        db.commit()
+        cached += 1
+    return cached
 
 
 def sync_last_days(db: Session, source: DataSource, days: int) -> models.SyncLog:

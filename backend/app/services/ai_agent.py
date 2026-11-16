@@ -28,8 +28,32 @@ from .ai_client import Provider
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 6
-MAX_CONTEXT_TOKENS = 12000
+# Model passes per user turn. The last one is answer-only, so the model gets
+# MAX_ITERATIONS - 1 rounds of tool calls. Six was too few for a question that
+# spans domains (cardio + strength + context + correlations is four already).
+MAX_ITERATIONS = 10
+
+# Budget for the messages we resend each pass (tool schemas and the reply ride
+# on top). 12k was small enough that a single multi-domain turn overflowed it,
+# and the overflow was paid for with that same turn's tool results.
+MAX_CONTEXT_TOKENS = 24000
+
+# Appended to the final request only - never persisted, never shown.
+FINAL_PASS_NUDGE = (
+    "[System note: the tool budget for this question is used up and tools are "
+    "now disabled. Write your final answer now, from the tool results above. Do "
+    "not say what you are about to look up next. If something you wanted is "
+    "missing, say so in the answer and work with what you have.]"
+)
+
+TRUNCATED_NOTE = (
+    "\n\n*(This reply hit the length limit and was cut off - ask me to continue.)*"
+)
+
+EMPTY_ANSWER_NOTE = (
+    "The model returned an empty reply, so there is nothing to show for that "
+    "question. Please ask again - nothing was changed."
+)
 
 AGENT_SYSTEM_PROMPT = """You are an evidence-based health and fitness analyst with \
 tool access to one person's self-tracked data: a Garmin wearable (sleep, HRV, resting \
@@ -39,7 +63,10 @@ entered bloodwork, and subjective context logs (alcohol, caffeine, mood, illness
 Today's date is {today}.
 
 HOW TO ANSWER
-1. Work out what data would actually answer the question before reaching for a tool.
+1. Work out what data would actually answer the question before reaching for a tool. \
+You get at most {tool_rounds} rounds of tool calls per question, so plan them: request \
+everything you can foresee needing in the same round, as parallel calls, instead of one \
+call per round. Do not re-request data you already have.
 2. Check the data inventory below before assuming a period is covered. Never request or \
 reason about a period that has no data - say it isn't there.
 3. Call the narrowest tools that answer the question. Prefer aggregated statistics over \
@@ -48,6 +75,9 @@ raw daily rows; only ask for day-level granularity over short, specific windows.
 date, or a data point you were not given.
 5. If a tool returns notices about clipped or re-bucketed data, take them seriously and \
 tell the user what you actually looked at.
+6. Do not narrate ("Let me check...", "Now let me look at..."). Call the tools silently, \
+then write one complete answer. If the data you hoped for does not exist in any tool, \
+stop looking and answer from what you have, saying what was missing.
 
 HONESTY
 - This is one person's data. Correlations over weeks are weak evidence; say so whenever \
@@ -117,7 +147,9 @@ def system_messages(db: Session, session_id: int | None = None) -> list[dict]:
     messages = [
         {
             "role": "system",
-            "content": AGENT_SYSTEM_PROMPT.format(today=today_local().isoformat()),
+            "content": AGENT_SYSTEM_PROMPT.format(
+                today=today_local().isoformat(), tool_rounds=MAX_ITERATIONS - 1
+            ),
         },
         {
             "role": "system",
@@ -143,13 +175,28 @@ def system_messages(db: Session, session_id: int | None = None) -> list[dict]:
     return messages
 
 
-def trim_history(messages: list[dict], budget: int = MAX_CONTEXT_TOKENS) -> list[dict]:
-    """Keep the conversation inside a token budget.
+def _collapse_tool(m: dict) -> dict:
+    """A tool result reduced to its one-line trace summary."""
+    if m["role"] != "tool" or len(m.get("content") or "") <= 200:
+        return m
+    try:
+        summary = json.loads(m["content"]).get("trace_summary")
+    except (json.JSONDecodeError, AttributeError):
+        summary = None
+    return {**m, "content": json.dumps({"trace_summary": summary or "(older result omitted)"})}
 
-    Tool results are the first thing to go - they are bulky, and the assistant's
-    own conclusions about them survive in its replies. If that isn't enough, drop
-    the oldest exchanges, leaving a note so the model knows the history is partial
-    rather than believing it saw everything."""
+
+def trim_history(messages: list[dict], budget: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+    """Keep the conversation inside a token budget, cheapest loss first.
+
+    1. Tool results from *earlier* turns shrink to their trace summary - the
+       assistant's conclusions about them survive in its replies.
+    2. Only then the current turn's own results, oldest first, sparing the most
+       recent round. These are the evidence the pending answer will be written
+       from; collapsing them early is what made the model fetch the same runs
+       three times in one turn.
+    3. Finally whole earlier exchanges are dropped, with a note so the model
+       knows the history is partial. The question being answered never goes."""
     system = [m for m in messages if m["role"] == "system"]
     body = [m for m in messages if m["role"] != "system"]
 
@@ -159,27 +206,33 @@ def trim_history(messages: list[dict], budget: int = MAX_CONTEXT_TOKENS) -> list
     if total(body) <= budget:
         return system + body
 
-    # 1. shrink older tool payloads down to their one-line trace summary
-    trimmed = list(body)
-    for i, m in enumerate(trimmed[:-4]):
-        if m["role"] == "tool" and len(m.get("content") or "") > 200:
-            try:
-                summary = json.loads(m["content"]).get("trace_summary")
-            except (json.JSONDecodeError, AttributeError):
-                summary = None
-            trimmed[i] = {**m, "content": json.dumps({"trace_summary": summary or "(older result omitted)"})}
+    # where the turn in progress starts: the last user message
+    current = max((i for i, m in enumerate(body) if m["role"] == "user"), default=0)
 
+    # 1. earlier turns
+    trimmed = [_collapse_tool(m) if i < current else m for i, m in enumerate(body)]
     if total(trimmed) <= budget:
         return system + trimmed
 
-    # 2. drop oldest turns, but never orphan a tool message from its tool_call
+    # 2. this turn, oldest first, one at a time so we stop as soon as it fits
+    for i in range(current, len(trimmed) - 4):
+        collapsed = _collapse_tool(trimmed[i])
+        if collapsed is not trimmed[i]:
+            trimmed[i] = collapsed
+            if total(trimmed) <= budget:
+                return system + trimmed
+
+    # 3. drop oldest turns, but never orphan a tool message from its tool_call,
+    #    and never reach into the turn in progress
     dropped = 0
-    while trimmed and total(trimmed) > budget and len(trimmed) > 4:
+    while current > 0 and total(trimmed) > budget:
         trimmed.pop(0)
         dropped += 1
-        while trimmed and trimmed[0]["role"] == "tool":
+        current -= 1
+        while current > 0 and trimmed[0]["role"] == "tool":
             trimmed.pop(0)
             dropped += 1
+            current -= 1
 
     if dropped:
         system = system + [{
@@ -240,12 +293,17 @@ def run_agent_turn(
         # re-searching, and the budget ran out with nothing said at all - the
         # user got an apology instead of the data already in hand. Tools stay
         # in the request so the cached prefix doesn't change; only the choice
-        # is taken away.
+        # is taken away - and the model is told, because a model that doesn't
+        # know this pass is the last one spends it announcing its next lookup.
         last = iteration == max_iterations - 1
+
+        request = trim_history(messages)
+        if last and iteration > 0:
+            request = request + [{"role": "user", "content": FINAL_PASS_NUDGE}]
 
         try:
             for chunk in ai_client.chat_stream(
-                trim_history(messages),
+                request,
                 provider=provider,
                 tools=ai_tools.TOOL_SCHEMAS,
                 tool_choice="none" if last else "auto",
@@ -276,8 +334,25 @@ def run_agent_turn(
         calls = [c for c in tool_buffer.values() if c.get("name")]
 
         if not calls:
+            if not content.strip():
+                # Nothing said and nothing asked for. Saved as-is this renders
+                # as a blank space where the answer should be.
+                emit({"role": "assistant", "content": EMPTY_ANSWER_NOTE})
+                yield AgentEvent("token", {"text": EMPTY_ANSWER_NOTE})
+                yield AgentEvent("message_done", {
+                    "content": EMPTY_ANSWER_NOTE,
+                    "finish_reason": finish_reason,
+                    "warning": "empty_answer",
+                })
+                return
+            done: dict = {"content": content, "finish_reason": finish_reason}
+            if finish_reason == "length":
+                # Otherwise a reply that stops mid-sentence looks finished.
+                content += TRUNCATED_NOTE
+                yield AgentEvent("token", {"text": TRUNCATED_NOTE})
+                done.update(content=content, warning="truncated")
             emit({"role": "assistant", "content": content})
-            yield AgentEvent("message_done", {"content": content, "finish_reason": finish_reason})
+            yield AgentEvent("message_done", done)
             return
 
         emit({

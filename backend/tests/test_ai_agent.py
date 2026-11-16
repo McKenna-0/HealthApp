@@ -223,6 +223,44 @@ def test_last_iteration_takes_the_tools_away_and_gets_a_real_answer(db, monkeypa
     assert "warning" not in done[0].data
 
 
+def test_final_pass_is_told_to_answer_from_what_it_has(db, monkeypatch):
+    """Taking the tools away is not enough on its own. Observed in production: a
+    six-round turn where the model, not knowing the last pass was the last,
+    spent it on "Now let me look at your runs..." and the user got that
+    sentence as the whole answer. The final request has to say so."""
+    scripts = [
+        list(_tool_chunks("get_data_inventory", "{}", call_id="c0")),
+        list(_tool_chunks("get_data_inventory", "{}", call_id="c1")),
+        list(_text_chunks("Here is the answer.")),
+    ]
+    calls = _scripted(monkeypatch, *scripts)
+    messages = ai_agent.system_messages(db) + [{"role": "user", "content": "steps?"}]
+    list(ai_agent.run_agent_turn(db, messages, PROVIDER, max_iterations=3))
+
+    final_request = calls["sent"][-1]
+    assert "final answer now" in final_request[-1]["content"]
+    # earlier passes are not nagged
+    assert all("final answer now" not in (m.get("content") or "") for m in calls["sent"][0])
+    # a request-only nudge: it is not part of the saved conversation
+    assert all("final answer now" not in (m.get("content") or "") for m in messages)
+
+
+def test_empty_final_answer_becomes_an_explanation(db, monkeypatch):
+    """A reply with no text and no tool calls used to be saved as an empty
+    assistant message, which renders as nothing at all."""
+    script = [{"choices": [{"delta": {}, "finish_reason": "stop"}]}]
+    events, messages = _run(db, monkeypatch, script)
+
+    done = _by_type(events, "message_done")[0]
+    assert done.data["warning"] == "empty_answer"
+    assert messages[-1]["content"].strip()
+
+
+def test_prompt_states_the_tool_round_budget(db):
+    prompt = ai_agent.system_messages(db)[0]["content"]
+    assert f"{ai_agent.MAX_ITERATIONS - 1} rounds" in prompt
+
+
 def test_max_iterations_stops_with_a_usable_message(db, monkeypatch):
     scripts = [list(_tool_chunks("get_data_inventory", "{}", call_id=f"c{i}")) for i in range(3)]
     events, messages = _run(db, monkeypatch, *scripts, max_iterations=3)
@@ -331,6 +369,50 @@ def test_trim_never_orphans_a_tool_message():
     out = ai_agent.trim_history(msgs, budget=900)
     body = [m for m in out if m["role"] != "system"]
     assert body, "trimming should not empty the conversation"
+    assert body[0]["role"] != "tool"
+
+
+def _turn(i, payload):
+    return [
+        {"role": "user", "content": f"q{i}"},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": f"c{i}", "type": "function", "function": {"name": "get_workouts", "arguments": "{}"}}
+        ]},
+        {"role": "tool", "tool_call_id": f"c{i}", "content": payload},
+    ]
+
+
+def test_trim_spends_old_turns_before_the_current_ones_evidence():
+    """Mid-turn, the tool results fetched for *this* question are the evidence
+    the answer will be written from. Collapsing them made the model re-fetch
+    the same runs three times in one turn. Earlier turns pay first - their
+    conclusions already live in the replies."""
+    big = json.dumps({"trace_summary": "Checked workouts", "rows": ["x" * 6000]})
+    msgs = [{"role": "system", "content": "sys"}]
+    msgs += _turn(0, big) + [{"role": "assistant", "content": "a0"}]
+    # current turn: three rounds of tool work, no answer yet
+    msgs += _turn(1, big)
+    for j in (2, 3):
+        msgs += _turn(j, big)[1:]
+
+    out = ai_agent.trim_history(msgs, budget=6000)
+    tools = [m for m in out if m["role"] == "tool"]
+    old = [m for m in tools if m["tool_call_id"] == "c0"]
+    current = [m for m in tools if m["tool_call_id"] != "c0"]
+    assert all(len(m["content"]) < 200 for m in old)
+    assert len(current) == 3
+    assert all(m["content"] == big for m in current)
+
+
+def test_trim_never_drops_the_question_being_answered():
+    big = json.dumps({"trace_summary": "Checked workouts", "rows": ["x" * 6000]})
+    msgs = [{"role": "system", "content": "sys"}, {"role": "user", "content": "THE QUESTION"}]
+    for j in range(8):
+        msgs += _turn(j, big)[1:]
+
+    out = ai_agent.trim_history(msgs, budget=3000)
+    assert any(m.get("content") == "THE QUESTION" for m in out)
+    body = [m for m in out if m["role"] != "system"]
     assert body[0]["role"] != "tool"
 
 

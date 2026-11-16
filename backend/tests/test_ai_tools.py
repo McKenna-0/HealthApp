@@ -419,3 +419,60 @@ def test_every_schema_has_a_registry_entry():
 def test_schemas_stay_small_enough_to_resend_every_turn():
     # they ride along on every model call, so a bloated set is a per-turn tax
     assert len(json.dumps(ai_tools.TOOL_SCHEMAS)) < 12000
+
+
+# ---- cardio intensity ------------------------------------------------------------
+
+
+def _add_run(db, **kw):
+    act = models.Activity(
+        external_id=kw.pop("external_id", "g1"),
+        date="2026-03-01",
+        type="running",
+        name="Easy run",
+        duration_min=40.0,
+        avg_hr=150,
+        source="garmin",
+        synced_at="x",
+        **kw,
+    )
+    db.add(act)
+    db.commit()
+    return act
+
+
+def test_workouts_carry_garmin_training_effect(db):
+    """Garmin's low/high aerobic split is derived from per-activity training
+    effect. Without it the agent was asked about load focus and had nothing
+    to look at but average heart rate."""
+    _add_run(db, aerobic_te=3.4, anaerobic_te=0.6, training_effect_label="TEMPO")
+
+    out = ai_tools.get_workouts(db, "2026-02-25", "2026-03-02", include_load=False)
+    row = out["workouts"][0]
+    assert row["aerobic_te"] == 3.4
+    assert row["anaerobic_te"] == 0.6
+    assert row["training_effect_label"] == "TEMPO"
+
+
+def test_workout_detail_includes_cached_hr_zones(db):
+    act = _add_run(db)
+    for n, secs in ((1, 120.0), (2, 600.0), (4, 900.0)):
+        db.add(models.ActivityHrZone(
+            activity_id=act.id, zone_number=n, secs_in_zone=secs, zone_low_boundary=100 + n * 15
+        ))
+    db.commit()
+
+    out = ai_tools.get_workout_detail(db, act.id)
+    zones = out["hr_zones"]
+    assert [z["zone"] for z in zones] == [1, 2, 4]
+    assert zones[2]["minutes"] == 15.0
+
+
+def test_workout_detail_says_when_zones_were_never_fetched(db):
+    """Zones are cached the first time a workout is opened in the app; the tool
+    must not make a Garmin call of its own, and must not let the absence read
+    as 'no time in any zone'."""
+    act = _add_run(db)
+    out = ai_tools.get_workout_detail(db, act.id)
+    assert out["hr_zones"] is None
+    assert any("zone" in n.lower() for n in out["notices"])
