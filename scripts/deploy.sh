@@ -46,12 +46,21 @@ touch \$POLLER_LOG
 # Restarted here, not at the end. Restarting it last meant its startup
 # redeploys landed seconds after this script printed "Deploy complete", so the
 # server ended up running whichever review branch it processed last.
+#
+# Both the poller and the app are systemd units. Starting them with nohup put a
+# second copy beside the unit: the stray uvicorn held port 8000 and
+# health-app.service crash-looped every 7s for days. The sudo rule comes from
+# scripts/dell_setup.sh; fail loudly if it has not been run.
+if ! sudo -n -l /usr/bin/systemctl restart health-app.service > /dev/null 2>&1; then
+  echo "    ERROR: passwordless 'sudo systemctl' is not set up on the Dell." >&2
+  echo "    Run once: ssh -t $DELL_HOST 'sudo bash ~/$APP_DIR/scripts/dell_setup.sh'" >&2
+  exit 1
+fi
 echo "==> Restarting GitHub poller..."
 LOG_MARK=\$(wc -l < \$POLLER_LOG)
+# Strays from older nohup/autostart launches, then the unit itself.
 pkill -f "github_poller[.]py" 2>/dev/null || true
-sleep 1
-nohup python3 ~/$APP_DIR/scripts/github_poller.py >> \$POLLER_LOG 2>&1 &
-disown
+sudo -n systemctl restart health-poller.service
 
 # Only lines written after this restart count - the marker from the previous
 # run is still in the log. A poller predating the marker never matches, so the
@@ -83,16 +92,12 @@ echo "==> Installing backend dependencies..."
 cd backend
 uv sync
 
-# Bound to localhost because 'tailscale serve' fronts it with HTTPS. The
-# poller starts it the same way; binding 0.0.0.0 here made the app's exposure
-# depend on which of the two had deployed last.
-echo "==> Restarting uvicorn..."
+# health-app.service binds 127.0.0.1 because 'tailscale serve' fronts it with
+# HTTPS. Kill strays from older nohup launches first so the unit gets the port.
+echo "==> Restarting health-app.service..."
 pkill -f "uvicorn app[.]main" 2>/dev/null || true
 sleep 2
-mkdir -p ~/$APP_DIR/logs
-nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \
-  >> ~/$APP_DIR/logs/uvicorn.log 2>&1 &
-disown
+sudo -n systemctl restart health-app.service
 
 # Polled rather than slept: 6s happened to be enough, but it is a guess, and
 # review.sh hit a 502 doing exactly this.

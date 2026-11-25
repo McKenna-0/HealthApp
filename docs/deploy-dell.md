@@ -153,18 +153,19 @@ Comment 'lgtm'           →      PR merged, main deployed
 
 ### Start the poller
 
-Auto-start at logon: `~/.config/autostart/github-poller.desktop` is already
-configured. Or start manually:
+The poller runs as `health-poller.service` and the app as
+`health-app.service`. Run exactly one copy of each, both under systemd: never
+`nohup` them or add a desktop autostart entry. A stray uvicorn holds port 8000
+and the unit crash-loops; a second poller races on the same issues.
+
+One-time host setup (sudo rule for restarts, crash-loop backoff, wifi
+watchdog, no suspend):
 
 ```bash
-cd ~/health-app
-mkdir -p logs
-nohup python3 scripts/github_poller.py >> logs/poller.log 2>&1 &
-disown
+ssh -t conor@100.95.44.32 'sudo bash ~/health-app/scripts/dell_setup.sh'
 ```
 
-The deploy script (`scripts/deploy.sh`) automatically restarts the poller on
-each deploy.
+The deploy script (`scripts/deploy.sh`) restarts both units on each deploy.
 
 ### Usage from phone
 
@@ -185,8 +186,9 @@ tail -f ~/health-app/logs/poller.log
 # Live Claude output for a specific issue
 tail -f ~/health-app/logs/claude-issue-1.log
 
-# Check process is running
-ps aux | grep github_poller
+# Check services
+systemctl status health-app health-poller wifi-watchdog.timer
+journalctl -t wifi-watchdog --since today
 ```
 
 ### Re-triggering a failed issue
@@ -220,7 +222,7 @@ cd ~/health-app
 git pull --ff-only
 bash scripts/build_frontend.sh
 cd backend && uv sync
-# restart uvicorn (kill existing, relaunch via start-app.bat or manually)
+sudo systemctl restart health-app.service
 ```
 
 Schema changes apply automatically on restart (the app adds missing tables/columns).

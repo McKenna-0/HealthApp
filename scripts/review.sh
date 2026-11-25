@@ -53,7 +53,7 @@ for _ in $(seq 1 20); do
   sleep 2
 done
 if [ "$HEALTHY" != yes ]; then
-  echo "    app did not come back within 40s - check logs/uvicorn.log on the Dell" >&2
+  echo "    app did not come back within 40s - check: journalctl -u health-app -n 50 (on the Dell)" >&2
   exit 1
 fi
 BRANCH=$(ssh "$DELL_HOST" "cd ~/$APP_DIR && git branch --show-current")

@@ -9,8 +9,11 @@ Supports multi-turn conversations: when Claude needs clarification, it posts
 a comment on the issue and waits for the user to reply via GitHub mobile.
 
 Usage:
-    python scripts/github_poller.py          # run in foreground
-    nohup python scripts/github_poller.py >> logs/poller.log 2>&1 &  # background
+    python scripts/github_poller.py          # run in foreground (dev only)
+
+On the Dell it runs as health-poller.service - exactly one copy. Do not also
+start it with nohup or a desktop autostart entry: two pollers race on the
+same issues.
 """
 
 import json
@@ -336,20 +339,29 @@ def _build_and_restart() -> bool:
         return False
     log.info("Frontend built successfully")
 
-    subprocess.run(["pkill", "-f", "uvicorn app.main:app"],
-                   capture_output=True, cwd=str(REPO_DIR))
-    time.sleep(2)
-
-    uvicorn_log = REPO_DIR / "logs" / "uvicorn.log"
-    uf = open(uvicorn_log, "a")
-    subprocess.Popen(
-        ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
-        cwd=str(REPO_DIR / "backend"),
-        stdout=uf, stderr=subprocess.STDOUT,
-        env=env,
+    # The app is owned by health-app.service. Launching a second uvicorn here
+    # left systemd crash-looping on "address already in use" every 7s for
+    # days, and this copy bound 0.0.0.0 - exposing the app to the whole
+    # eduroam network. Restart the unit instead; scripts/dell_setup.sh grants
+    # the NOPASSWD rule that makes `sudo -n` work.
+    restart = subprocess.run(
+        ["sudo", "-n", "systemctl", "restart", "health-app.service"],
+        capture_output=True, text=True,
     )
-    log.info("Uvicorn restarted")
-    return True
+    if restart.returncode != 0:
+        log.error("Restarting health-app.service failed: %s", restart.stderr.strip())
+        return False
+    for _ in range(20):
+        probe = subprocess.run(
+            ["curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8000/api/health"],
+            capture_output=True,
+        )
+        if probe.returncode == 0:
+            log.info("health-app.service restarted and healthy")
+            return True
+        time.sleep(2)
+    log.error("health-app.service did not become healthy within 40s")
+    return False
 
 
 def deploy_branch(branch: str) -> bool:
